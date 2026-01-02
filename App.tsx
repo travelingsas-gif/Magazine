@@ -595,7 +595,6 @@ const LoginView: React.FC<{ onLogin: (e: string, p: string) => void }> = ({ onLo
             <Building2 className="text-emerald-600" size={32} />
           </div>
           <h2 className="text-2xl font-bold text-gray-800">CleanManage</h2>
-          <p className="text-gray-500">Accesso portale turistico</p>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); onLogin(email, password); }} className="space-y-4">
           <div>
