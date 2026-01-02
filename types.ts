@@ -58,6 +58,12 @@ export interface DamageReport {
   status: 'OPEN' | 'RESOLVED';
 }
 
+export enum OrderStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED'
+}
+
 export interface Order {
   id: string;
   structureId: string;
@@ -69,29 +75,6 @@ export interface Order {
   items: InventoryItem[];
   status: OrderStatus;
   type: ItemType; // Order is specific to a type
-}
-
-export enum OrderStatus {
-  PENDING = 'PENDING',
-  SENT = 'SENT',
-  DELIVERED = 'DELIVERED'
-}
-
-// --- NEW TYPES FOR LINEN ISSUES ---
-export interface LinenIssueItem {
-  productId: string;
-  dirty: number;   // Sporca
-  broken: number;  // Rotta
-  unused: number;  // Inutilizzata
-}
-
-export interface LinenIssueReport {
-  id: string;
-  structureId: string;
-  reporterId: string;
-  date: string;
-  items: LinenIssueItem[];
-  notes?: string;
 }
 
 export interface MockDatabase {
