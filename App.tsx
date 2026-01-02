@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
@@ -282,6 +282,7 @@ const App: React.FC = () => {
                   structures={structures}
                   products={products}
                   users={users}
+                  currentUser={currentUser}
                   targetType="PRODUCT"
                   onUpdateOrder={async (updatedOrder) => {
                     const { error } = await supabase.from('orders').update({
@@ -301,6 +302,7 @@ const App: React.FC = () => {
                   structures={structures}
                   products={products}
                   users={users}
+                  currentUser={currentUser}
                   targetType="LINEN"
                   onUpdateOrder={async (updatedOrder) => {
                     const { error } = await supabase.from('orders').update({
@@ -401,7 +403,7 @@ const App: React.FC = () => {
           {currentUser.role === Role.SUPPLIER ? (
             <NavItem 
               icon={<Truck size={20} />} 
-              label="Ordini Ricevuti" 
+              label="Pannello Fornitore" 
               active={currentView === 'supplier-dashboard'} 
               onClick={() => { setCurrentView('supplier-dashboard'); setIsMenuOpen(false); }} 
             />
@@ -414,7 +416,8 @@ const App: React.FC = () => {
                 onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} 
               />
               
-              {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) && (
+              {/* Sezione Ordini visibile a Admin, Reception E Operatori (per gestire i propri) */}
+              {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION || currentUser.role === Role.OPERATOR) && (
                 <>
                   <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Ordini</div>
                   <NavItem 
@@ -663,21 +666,35 @@ const StructureDetailView: React.FC<{
       <div className="space-y-6">
         {activeTab === 'info' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+             {/* Inventario Prodotti: Visibile a tutti (Operatori, Admin, Reception) */}
              <div onClick={() => onNewInventory('PRODUCT')} className="cursor-pointer bg-emerald-50 border border-emerald-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-emerald-600 mb-3 shadow-sm"><Box /></div>
                 <h3 className="font-bold text-lg text-emerald-900">Inventario Prodotti</h3>
                 <p className="text-emerald-700 text-sm">Controlla e registra i consumabili</p>
              </div>
+
+             {/* Inventario Biancheria: Visibile a tutti (Operatori, Admin, Reception) */}
              <div onClick={() => onNewInventory('LINEN')} className="cursor-pointer bg-indigo-50 border border-indigo-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-indigo-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-indigo-900">Conta Biancheria</h3>
                 <p className="text-indigo-700 text-sm">Gestione lavanderia e cambi</p>
              </div>
+
+             {/* Ordina Forniture: Visibile a Admin, Reception, Operatore */}
              <div onClick={() => onRequestOrder('PRODUCT')} className="cursor-pointer bg-orange-50 border border-orange-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-orange-600 mb-3 shadow-sm"><ShoppingCart /></div>
                 <h3 className="font-bold text-lg text-orange-900">Ordina Forniture</h3>
                 <p className="text-orange-700 text-sm">Richiedi prodotti mancanti</p>
              </div>
+
+             {/* Ordina Biancheria: Visibile a Operatore, Reception, Admin */}
+             <div onClick={() => onRequestOrder('LINEN')} className="cursor-pointer bg-sky-50 border border-sky-100 p-6 rounded-xl hover:shadow-md transition">
+                <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-sky-600 mb-3 shadow-sm"><Shirt /></div>
+                <h3 className="font-bold text-lg text-sky-900">Ordina Biancheria</h3>
+                <p className="text-sky-700 text-sm">Richiedi set biancheria</p>
+             </div>
+
+             {/* Segnalazione Danni: Visibile a tutti */}
              <div onClick={() => onReportDamage('PRODUCT')} className="cursor-pointer bg-red-50 border border-red-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-red-600 mb-3 shadow-sm"><AlertTriangle /></div>
                 <h3 className="font-bold text-lg text-red-900">Segnala Guasto</h3>
@@ -995,11 +1012,49 @@ const ManageOrdersView: React.FC<{
   structures: Structure[];
   products: Product[];
   users: User[];
+  currentUser: User;
   targetType: ItemType;
   onUpdateOrder: (o: Order) => void;
   onDeleteOrder: (id: string) => void;
-}> = ({ orders, structures, products, users, targetType, onUpdateOrder, onDeleteOrder }) => {
+}> = ({ orders, structures, products, users, currentUser, targetType, onUpdateOrder, onDeleteOrder }) => {
   const filteredOrders = orders.filter(o => o.type === targetType).sort((a,b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
+
+  // Editing state for Reception/Admin
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [tempItems, setTempItems] = useState<InventoryItem[]>([]);
+
+  const startEditing = (order: Order) => {
+    setEditingOrderId(order.id);
+    setTempItems([...order.items]);
+  };
+
+  const cancelEditing = () => {
+    setEditingOrderId(null);
+    setTempItems([]);
+  };
+
+  const saveEditing = (order: Order) => {
+    // Filter out 0 quantities
+    const finalItems = tempItems.filter(i => i.quantity > 0);
+    if (finalItems.length === 0) {
+      alert("L'ordine non può essere vuoto. Eliminalo se necessario.");
+      return;
+    }
+    const updatedOrder = { ...order, items: finalItems };
+    onUpdateOrder(updatedOrder);
+    setEditingOrderId(null);
+    setTempItems([]);
+  };
+
+  const updateTempItem = (productId: string, qty: number) => {
+    setTempItems(prev => {
+      const exists = prev.find(i => i.productId === productId);
+      if (exists) {
+        return prev.map(i => i.productId === productId ? { ...i, quantity: qty } : i);
+      }
+      return [...prev, { productId, quantity: qty }];
+    });
+  };
 
   const handleStatusChange = (order: Order, newStatus: OrderStatus) => {
     const updated = { 
@@ -1009,6 +1064,17 @@ const ManageOrdersView: React.FC<{
     };
     onUpdateOrder(updated);
   };
+
+  const canEdit = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION;
+  const canSend = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION;
+  
+  // Operators can delete pending orders
+  const canDelete = (order: Order) => {
+     if (order.status !== OrderStatus.PENDING) return false;
+     if (currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) return true;
+     if (currentUser.role === Role.OPERATOR) return true; // As per requirement: "4 operatore , reception possono eliminare ordini"
+     return false;
+  }
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -1021,6 +1087,8 @@ const ManageOrdersView: React.FC<{
          {filteredOrders.map(order => {
            const struct = structures.find(s => s.id === order.structureId);
            const requester = users.find(u => u.id === order.requesterId);
+           const isEditing = editingOrderId === order.id;
+
            return (
              <div key={order.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between gap-6">
                 <div className="flex-1">
@@ -1035,33 +1103,91 @@ const ManageOrdersView: React.FC<{
                    <p className="text-sm text-gray-500 mb-4">
                       Richiesto da {requester?.name} il {new Date(order.dateCreated).toLocaleDateString()}
                    </p>
+                   
                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <ul className="text-sm space-y-1">
-                        {order.items.map(item => {
-                           const p = products.find(prod => prod.id === item.productId);
-                           return <li key={item.productId} className="flex justify-between">
-                              <span>{p?.name}</span>
-                              <span className="font-mono font-bold">{item.quantity} {p?.unit}</span>
-                           </li>
-                        })}
-                      </ul>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-bold text-gray-500 mb-2">Modifica Quantità:</p>
+                          {tempItems.map(item => {
+                            const p = products.find(prod => prod.id === item.productId);
+                            return (
+                              <div key={item.productId} className="flex justify-between items-center">
+                                <span>{p?.name}</span>
+                                <div className="flex items-center gap-2">
+                                   <input 
+                                      type="number" 
+                                      min="0" 
+                                      className="w-16 border rounded p-1 text-center" 
+                                      value={item.quantity}
+                                      onChange={(e) => updateTempItem(item.productId, parseInt(e.target.value) || 0)}
+                                   />
+                                   <span className="text-xs text-gray-400">{p?.unit}</span>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <ul className="text-sm space-y-1">
+                          {order.items.map(item => {
+                             const p = products.find(prod => prod.id === item.productId);
+                             return <li key={item.productId} className="flex justify-between">
+                                <span>{p?.name}</span>
+                                <span className="font-mono font-bold">{item.quantity} {p?.unit}</span>
+                             </li>
+                          })}
+                        </ul>
+                      )}
                    </div>
                 </div>
                 
                 <div className="flex flex-col justify-center gap-2 min-w-[150px]">
-                   {order.status === OrderStatus.PENDING && (
-                     <button onClick={() => handleStatusChange(order, OrderStatus.SENT)} className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">
-                        Approva e Invia
-                     </button>
+                   {order.status === OrderStatus.PENDING ? (
+                     <>
+                        {isEditing ? (
+                           <>
+                             <button onClick={() => saveEditing(order)} className="bg-emerald-600 text-white py-2 rounded hover:bg-emerald-700 transition flex items-center justify-center gap-1">
+                               <Save size={16}/> Salva
+                             </button>
+                             <button onClick={cancelEditing} className="bg-gray-200 text-gray-700 py-2 rounded hover:bg-gray-300 transition flex items-center justify-center gap-1">
+                               <XCircle size={16}/> Annulla
+                             </button>
+                           </>
+                        ) : (
+                           <>
+                             {/* Reception/Admin Action: Send to Supplier */}
+                             {canSend && (
+                               <button onClick={() => handleStatusChange(order, OrderStatus.SENT)} className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                                  <Send size={16} /> {order.type === 'LINEN' ? 'Invia in Lavanderia' : 'Approva e Invia'}
+                               </button>
+                             )}
+                             
+                             {/* Reception/Admin Action: Modify before sending */}
+                             {canEdit && (
+                               <button onClick={() => startEditing(order)} className="border border-gray-300 text-gray-700 py-2 rounded hover:bg-gray-50 transition flex items-center justify-center gap-2">
+                                  <Edit size={16} /> Modifica
+                               </button>
+                             )}
+
+                             {/* Delete Action: Operator/Reception/Admin */}
+                             {canDelete(order) && (
+                               <button onClick={() => onDeleteOrder(order.id)} className="border border-red-200 text-red-600 py-2 rounded hover:bg-red-50 transition flex items-center justify-center gap-2">
+                                  <Trash2 size={16} /> Elimina
+                               </button>
+                             )}
+                           </>
+                        )}
+                     </>
+                   ) : (
+                     /* Logic for SENT orders */
+                     <>
+                       {order.status === OrderStatus.SENT && canSend && (
+                         <button onClick={() => handleStatusChange(order, OrderStatus.DELIVERED)} className="bg-green-600 text-white py-2 rounded hover:bg-green-700 transition">
+                            Segna Consegnato
+                         </button>
+                       )}
+                     </>
                    )}
-                   {order.status === OrderStatus.SENT && (
-                     <button onClick={() => handleStatusChange(order, OrderStatus.DELIVERED)} className="bg-green-600 text-white py-2 rounded hover:bg-green-700 transition">
-                        Segna Consegnato
-                     </button>
-                   )}
-                   <button onClick={() => onDeleteOrder(order.id)} className="border border-red-200 text-red-600 py-2 rounded hover:bg-red-50 transition">
-                      Elimina
-                   </button>
                 </div>
              </div>
            );
@@ -1080,50 +1206,98 @@ const SupplierDashboardView: React.FC<{
   products: Product[];
   users: User[];
 }> = ({ orders, structures, products, users }) => {
-  const myOrders = orders.filter(o => o.status !== OrderStatus.PENDING); // Supplier sees Sent/Delivered
+  const [activeTab, setActiveTab] = useState<'orders' | 'access'>('orders');
+
+  // Only show PRODUCT orders to supplier (Alfonso), exclude LINEN
+  const myOrders = orders.filter(o => o.status !== OrderStatus.PENDING && o.type === 'PRODUCT');
 
   return (
     <div className="max-w-6xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">Pannello Fornitore</h2>
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4">Data</th>
-              <th className="p-4">Struttura</th>
-              <th className="p-4">Articoli</th>
-              <th className="p-4">Stato</th>
-            </tr>
-          </thead>
-          <tbody>
-            {myOrders.map(order => {
-              const struct = structures.find(s => s.id === order.structureId);
-              return (
-                <tr key={order.id} className="border-b">
-                  <td className="p-4">{new Date(order.dateCreated).toLocaleDateString()}</td>
-                  <td className="p-4">{struct?.name}</td>
-                  <td className="p-4">
-                    <ul className="list-disc pl-4 text-sm">
-                      {order.items.map((item, idx) => {
-                         const prod = products.find(p => p.id === item.productId);
-                         return <li key={idx}>{prod?.name}: {item.quantity} {prod?.unit}</li>
-                      })}
-                    </ul>
-                  </td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {order.status}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-            {myOrders.length === 0 && (
-                <tr><td colSpan={4} className="p-8 text-center text-gray-500">Nessun ordine assegnato.</td></tr>
-            )}
-          </tbody>
-        </table>
+      
+      {/* TABS */}
+      <div className="flex gap-6 border-b mb-6">
+        <button 
+          onClick={() => setActiveTab('orders')}
+          className={`pb-3 px-1 font-medium transition ${activeTab === 'orders' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Ordini Ricevuti
+        </button>
+        <button 
+          onClick={() => setActiveTab('access')}
+          className={`pb-3 px-1 font-medium transition ${activeTab === 'access' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Codici Accesso Strutture
+        </button>
       </div>
+
+      {activeTab === 'orders' ? (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="p-4">Data</th>
+                <th className="p-4">Struttura</th>
+                <th className="p-4">Articoli</th>
+                <th className="p-4">Stato</th>
+              </tr>
+            </thead>
+            <tbody>
+              {myOrders.map(order => {
+                const struct = structures.find(s => s.id === order.structureId);
+                return (
+                  <tr key={order.id} className="border-b">
+                    <td className="p-4">{new Date(order.dateCreated).toLocaleDateString()}</td>
+                    <td className="p-4">{struct?.name}</td>
+                    <td className="p-4">
+                      <ul className="list-disc pl-4 text-sm">
+                        {order.items.map((item, idx) => {
+                           const prod = products.find(p => p.id === item.productId);
+                           return <li key={idx}>{prod?.name}: {item.quantity} {prod?.unit}</li>
+                        })}
+                      </ul>
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {order.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {myOrders.length === 0 && (
+                  <tr><td colSpan={4} className="p-8 text-center text-gray-500">Nessun ordine assegnato.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {structures.map(struct => (
+             <div key={struct.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="h-32 bg-gray-200 relative">
+                   <img src={struct.imageUrl || `https://picsum.photos/seed/${struct.id}/800/400`} alt={struct.name} className="w-full h-full object-cover"/>
+                   <div className="absolute inset-0 bg-black/30 flex items-end p-4">
+                      <h3 className="text-white font-bold text-lg shadow-black drop-shadow-md">{struct.name}</h3>
+                   </div>
+                </div>
+                <div className="p-5">
+                   <p className="text-gray-500 text-sm mb-4 flex items-center gap-2"><MapPin size={16}/> {struct.address}</p>
+                   <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex items-start gap-3">
+                      <div className="bg-white p-2 rounded-full text-emerald-600 shadow-sm">
+                        <Key size={18} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-emerald-600 font-bold uppercase mb-1">Codici d'ingresso</p>
+                        <p className="font-mono text-lg text-gray-800 select-all font-medium">{struct.accessCodes}</p>
+                      </div>
+                   </div>
+                </div>
+             </div>
+          ))}
+          {structures.length === 0 && <p className="text-gray-500">Nessuna struttura disponibile.</p>}
+        </div>
+      )}
     </div>
   );
 };
