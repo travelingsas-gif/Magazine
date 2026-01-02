@@ -2,14 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Wrench, CheckCircle2, Download, ClipboardList, Calendar
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
-  OrderStatus, InventoryItem, ItemType, DamageReport 
+  OrderStatus, InventoryItem, ItemType, DamageReport, LinenIssueReport, LinenIssueItem 
 } from './types';
 import { analyzeInventoryImage } from './services/geminiService';
-import { SignaturePad } from './components/SignaturePad';
 import { supabase } from './supabaseClient';
 
 // --- Helpers to map snake_case (DB) to camelCase (App) ---
@@ -38,6 +37,10 @@ const mapDamageReport = (d: any): DamageReport => ({
   id: d.id, structureId: d.structure_id, reporterId: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status
 });
 
+const mapLinenReport = (l: any): LinenIssueReport => ({
+  id: l.id, structureId: l.structure_id, reporterId: l.reporter_id, date: l.date, items: l.items, notes: l.notes
+});
+
 // --- Main App ---
 
 const App: React.FC = () => {
@@ -53,6 +56,7 @@ const App: React.FC = () => {
   const [inventories, setInventories] = useState<InventoryReport[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [damageReports, setDamageReports] = useState<DamageReport[]>([]);
+  const [linenReports, setLinenReports] = useState<LinenIssueReport[]>([]);
 
   // Navigation state
   const [currentView, setCurrentView] = useState<string>('login');
@@ -67,13 +71,14 @@ const App: React.FC = () => {
     setLoading(true);
     try {
        // Parallel fetching
-       const [resUsers, resProds, resStructs, resInv, resOrd, resDmg] = await Promise.all([
+       const [resUsers, resProds, resStructs, resInv, resOrd, resDmg, resLinen] = await Promise.all([
          supabase.from('users').select('*'),
          supabase.from('products').select('*'),
          supabase.from('structures').select('*'),
          supabase.from('inventories').select('*'),
          supabase.from('orders').select('*'),
-         supabase.from('damage_reports').select('*')
+         supabase.from('damage_reports').select('*'),
+         supabase.from('linen_reports').select('*') // Assuming table exists
        ]);
 
        if (resUsers.error) throw resUsers.error;
@@ -93,6 +98,10 @@ const App: React.FC = () => {
 
        if (resDmg.error) throw resDmg.error;
        setDamageReports(resDmg.data.map(mapDamageReport));
+
+       if (!resLinen.error) {
+         setLinenReports(resLinen.data.map(mapLinenReport));
+       }
 
     } catch (err: any) {
       console.error("Error fetching data:", err);
@@ -210,6 +219,7 @@ const App: React.FC = () => {
                   onNewInventory={(type) => { setActiveItemType(type); setCurrentView('inventory-new'); }}
                   onRequestOrder={(type) => { setActiveItemType(type); setCurrentView('order-new'); }}
                   onReportDamage={(type) => { setActiveItemType(type); setCurrentView('damage-report-new'); }}
+                  onLinenIssue={() => setCurrentView('linen-issue-new')}
                   onEditStructure={async (s) => {
                     const { error } = await supabase.from('structures').update({
                       name: s.name, address: s.address, access_codes: s.accessCodes
@@ -218,6 +228,18 @@ const App: React.FC = () => {
                        setStructures(prev => prev.map(old => old.id === s.id ? s : old));
                        alert('Dati struttura aggiornati correttamente.');
                     }
+                  }}
+                  onResolveDamage={async (id) => {
+                     const { error } = await supabase.from('damage_reports').update({ status: 'RESOLVED' }).eq('id', id);
+                     if (!error) {
+                       setDamageReports(prev => prev.map(d => d.id === id ? { ...d, status: 'RESOLVED' } : d));
+                     }
+                  }}
+                  onDeleteDamage={async (id) => {
+                     const { error } = await supabase.from('damage_reports').delete().eq('id', id);
+                     if (!error) {
+                       setDamageReports(prev => prev.filter(d => d.id !== id));
+                     }
                   }}
                />;
       case 'inventory-new':
@@ -276,6 +298,43 @@ const App: React.FC = () => {
                 }}
                 onCancel={() => setCurrentView('structure-detail')}
               />
+      case 'linen-issue-new':
+        return <NewLinenIssueView
+                structureId={selectedStructureId!}
+                currentUser={currentUser}
+                products={products}
+                onSave={async (rep) => {
+                   const { data, error } = await supabase.from('linen_reports').insert({
+                      id: rep.id, structure_id: rep.structureId, reporter_id: rep.reporterId,
+                      date: rep.date, items: rep.items, notes: rep.notes
+                   }).select().single();
+                   if(!error && data) {
+                     setLinenReports([...linenReports, mapLinenReport(data)]);
+                     setCurrentView('structure-detail');
+                   }
+                }}
+                onCancel={() => setCurrentView('structure-detail')}
+              />;
+      case 'linen-issue-log':
+         return <LinenIssuesLogView 
+                  reports={linenReports}
+                  structures={structures}
+                  products={products}
+                  users={users}
+                  onUpdateReport={async (updated) => {
+                     // Simplified edit: just re-save
+                     const { error } = await supabase.from('linen_reports').update({
+                       items: updated.items, notes: updated.notes
+                     }).eq('id', updated.id);
+                     if (!error) {
+                        setLinenReports(prev => prev.map(r => r.id === updated.id ? updated : r));
+                     }
+                  }}
+                  onDeleteReport={async (id) => {
+                     const { error } = await supabase.from('linen_reports').delete().eq('id', id);
+                     if(!error) setLinenReports(prev => prev.filter(r => r.id !== id));
+                  }}
+                />;
       case 'orders-products': 
         return <ManageOrdersView 
                   orders={orders}
@@ -351,7 +410,7 @@ const App: React.FC = () => {
       default:
         // Default fallback
         if (currentUser.role === Role.SUPPLIER) return <SupplierDashboardView orders={orders} structures={structures} products={products} users={users} />;
-        return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={()=>{}} onUpdateImage={()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
+        return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={async ()=>{}} onUpdateImage={async ()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
     }
   };
 
@@ -419,7 +478,7 @@ const App: React.FC = () => {
               {/* Sezione Ordini visibile a Admin, Reception E Operatori (per gestire i propri) */}
               {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION || currentUser.role === Role.OPERATOR) && (
                 <>
-                  <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Ordini</div>
+                  <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Operatività</div>
                   <NavItem 
                     icon={<ShoppingCart size={20} />} 
                     label="Ordini Prodotti" 
@@ -439,6 +498,12 @@ const App: React.FC = () => {
 
               {currentUser.role === Role.ADMIN && (
                 <>
+                   <NavItem 
+                    icon={<ClipboardList size={20} />} 
+                    label="Log Biancheria Sporca" 
+                    active={currentView === 'linen-issue-log'} 
+                    onClick={() => { setCurrentView('linen-issue-log'); setIsMenuOpen(false); }} 
+                  />
                   <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Amministrazione</div>
                   <NavItem 
                     icon={<Box size={20} />} 
@@ -584,10 +649,13 @@ const StructureDetailView: React.FC<{
   onNewInventory: (type: ItemType) => void;
   onRequestOrder: (type: ItemType) => void;
   onReportDamage: (type: ItemType) => void;
+  onLinenIssue: () => void;
   onEditStructure: (s: Structure) => void;
+  onResolveDamage: (id: string) => void;
+  onDeleteDamage: (id: string) => void;
 }> = ({
   structureId, currentUser, inventories, orders, products, structures, users, damageReports,
-  onBack, onNewInventory, onRequestOrder, onReportDamage, onEditStructure
+  onBack, onNewInventory, onRequestOrder, onReportDamage, onLinenIssue, onEditStructure, onResolveDamage, onDeleteDamage
 }) => {
   const structure = structures.find(s => s.id === structureId);
   const [activeTab, setActiveTab] = useState<'info' | 'inventory' | 'orders' | 'damages'>('info');
@@ -666,35 +734,42 @@ const StructureDetailView: React.FC<{
       <div className="space-y-6">
         {activeTab === 'info' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             {/* Inventario Prodotti: Visibile a tutti (Operatori, Admin, Reception) */}
+             {/* Inventario Prodotti */}
              <div onClick={() => onNewInventory('PRODUCT')} className="cursor-pointer bg-emerald-50 border border-emerald-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-emerald-600 mb-3 shadow-sm"><Box /></div>
                 <h3 className="font-bold text-lg text-emerald-900">Inventario Prodotti</h3>
                 <p className="text-emerald-700 text-sm">Controlla e registra i consumabili</p>
              </div>
 
-             {/* Inventario Biancheria: Visibile a tutti (Operatori, Admin, Reception) */}
+             {/* Inventario Biancheria */}
              <div onClick={() => onNewInventory('LINEN')} className="cursor-pointer bg-indigo-50 border border-indigo-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-indigo-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-indigo-900">Conta Biancheria</h3>
                 <p className="text-indigo-700 text-sm">Gestione lavanderia e cambi</p>
              </div>
 
-             {/* Ordina Forniture: Visibile a Admin, Reception, Operatore */}
+             {/* Ordina Forniture */}
              <div onClick={() => onRequestOrder('PRODUCT')} className="cursor-pointer bg-orange-50 border border-orange-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-orange-600 mb-3 shadow-sm"><ShoppingCart /></div>
                 <h3 className="font-bold text-lg text-orange-900">Ordina Forniture</h3>
                 <p className="text-orange-700 text-sm">Richiedi prodotti mancanti</p>
              </div>
 
-             {/* Ordina Biancheria: Visibile a Operatore, Reception, Admin */}
+             {/* Ordina Biancheria */}
              <div onClick={() => onRequestOrder('LINEN')} className="cursor-pointer bg-sky-50 border border-sky-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-sky-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-sky-900">Ordina Biancheria</h3>
                 <p className="text-sky-700 text-sm">Richiedi set biancheria</p>
              </div>
+             
+             {/* Biancheria Sporca/Rotta */}
+             <div onClick={onLinenIssue} className="cursor-pointer bg-purple-50 border border-purple-100 p-6 rounded-xl hover:shadow-md transition">
+                <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-purple-600 mb-3 shadow-sm"><ClipboardList /></div>
+                <h3 className="font-bold text-lg text-purple-900">Biancheria Sporca/Rotta</h3>
+                <p className="text-purple-700 text-sm">Dichiara biancheria inutilizzata</p>
+             </div>
 
-             {/* Segnalazione Danni: Visibile a tutti */}
+             {/* Segnalazione Danni */}
              <div onClick={() => onReportDamage('PRODUCT')} className="cursor-pointer bg-red-50 border border-red-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-red-600 mb-3 shadow-sm"><AlertTriangle /></div>
                 <h3 className="font-bold text-lg text-red-900">Segnala Guasto</h3>
@@ -745,24 +820,300 @@ const StructureDetailView: React.FC<{
 
         {activeTab === 'damages' && (
           <div className="space-y-4">
-             {structDamages.map(dmg => (
-                <div key={dmg.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                   <div className="flex justify-between items-center mb-2">
-                      <span className={`text-xs px-2 py-1 rounded font-bold ${dmg.status === 'RESOLVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {dmg.status}
-                      </span>
-                      <span className="text-sm text-gray-500">{new Date(dmg.date).toLocaleDateString()}</span>
-                   </div>
-                   <p className="text-gray-800">{dmg.notes}</p>
-                   <p className="text-xs text-gray-400 mt-1">Segnalato da: {users.find(u => u.id === dmg.reporterId)?.name}</p>
-                </div>
-             ))}
-             {structDamages.length === 0 && <p className="text-gray-400 text-center py-8">Nessuna segnalazione</p>}
+             {structDamages.map(dmg => {
+                const isResolved = dmg.status === 'RESOLVED';
+                return (
+                  <div key={dmg.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 transition-all ${isResolved ? 'border-l-green-500 opacity-70' : 'border-l-red-500'}`}>
+                     <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          {isResolved ? <CheckCircle2 className="text-green-500" size={20} /> : <Wrench className="text-red-500" size={20} />}
+                          <span className={`text-sm font-bold ${isResolved ? 'text-green-700' : 'text-red-700'}`}>
+                            {isResolved ? 'Riparato / Risolto' : 'Guasto Aperto'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400">{new Date(dmg.date).toLocaleDateString()}</span>
+                     </div>
+                     <p className="text-gray-800 mb-3">{dmg.notes}</p>
+                     <div className="flex justify-between items-center">
+                        <p className="text-xs text-gray-400">Segnalato da: {users.find(u => u.id === dmg.reporterId)?.name}</p>
+                        
+                        {/* Action Buttons */}
+                        {currentUser.role !== Role.SUPPLIER && (
+                          <div className="flex gap-2">
+                             {!isResolved && (
+                                <button 
+                                  onClick={() => onResolveDamage(dmg.id)}
+                                  className="flex items-center gap-1 bg-green-50 text-green-700 px-3 py-1.5 rounded text-xs font-bold hover:bg-green-100 transition"
+                                >
+                                  <Check size={14} /> Segna Riparato
+                                </button>
+                             )}
+                             {isResolved && (
+                                <button 
+                                  onClick={() => onDeleteDamage(dmg.id)}
+                                  className="flex items-center gap-1 bg-gray-100 text-gray-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-50 hover:text-red-600 transition"
+                                >
+                                  <Trash2 size={14} /> Cestina
+                                </button>
+                             )}
+                          </div>
+                        )}
+                     </div>
+                  </div>
+                );
+             })}
+             {structDamages.length === 0 && <p className="text-gray-400 text-center py-8">Nessuna segnalazione guasti.</p>}
           </div>
         )}
       </div>
     </div>
   );
+};
+
+const NewLinenIssueView: React.FC<{
+   structureId: string;
+   currentUser: User;
+   products: Product[];
+   onSave: (report: any) => void;
+   onCancel: () => void;
+}> = ({ structureId, currentUser, products, onSave, onCancel }) => {
+   const linenProducts = products.filter(p => p.type === 'LINEN');
+   const [items, setItems] = useState<Record<string, { dirty: number, broken: number, unused: number }>>({});
+   const [notes, setNotes] = useState('');
+
+   const handleQtyChange = (pid: string, field: 'dirty' | 'broken' | 'unused', val: number) => {
+      setItems(prev => ({
+         ...prev,
+         [pid]: { ...prev[pid], [field]: val }
+      }));
+   };
+
+   const handleSubmit = () => {
+      // Convert map to array
+      const reportItems: LinenIssueItem[] = Object.entries(items).map(([pid, counts]) => ({
+         productId: pid,
+         dirty: counts.dirty || 0,
+         broken: counts.broken || 0,
+         unused: counts.unused || 0
+      })).filter(i => i.dirty > 0 || i.broken > 0 || i.unused > 0);
+
+      if (reportItems.length === 0) {
+         alert("Inserisci almeno una quantità.");
+         return;
+      }
+
+      onSave({
+         id: `lin-${Date.now()}`,
+         structureId,
+         reporterId: currentUser.id,
+         date: new Date().toISOString(),
+         items: reportItems,
+         notes
+      });
+   };
+
+   return (
+      <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-lg pb-20">
+         <h2 className="text-2xl font-bold mb-2 flex items-center gap-2 text-purple-700">
+            <ClipboardList /> Biancheria Sporca/Rotta
+         </h2>
+         <p className="text-gray-500 mb-6">Dichiara la biancheria che viene ritirata o che non è stata utilizzata.</p>
+         
+         <div className="space-y-4 mb-6">
+            <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">
+               <div className="col-span-5">Prodotto</div>
+               <div className="col-span-2 text-center text-orange-600">Sporco</div>
+               <div className="col-span-2 text-center text-red-600">Rotto</div>
+               <div className="col-span-2 text-center text-blue-600">Inutilizzato</div>
+            </div>
+            {linenProducts.map(p => {
+               const current = items[p.id] || { dirty: 0, broken: 0, unused: 0 };
+               return (
+                  <div key={p.id} className="grid grid-cols-12 gap-2 items-center border-b border-gray-100 pb-3">
+                     <div className="col-span-5 font-medium text-sm">{p.name} <span className="text-xs text-gray-400 font-normal">({p.unit})</span></div>
+                     <div className="col-span-2">
+                        <input type="number" min="0" className="w-full border border-orange-200 rounded p-1 text-center bg-orange-50" 
+                           value={current.dirty || ''} placeholder="0" onChange={e => handleQtyChange(p.id, 'dirty', parseInt(e.target.value)||0)} />
+                     </div>
+                     <div className="col-span-2">
+                        <input type="number" min="0" className="w-full border border-red-200 rounded p-1 text-center bg-red-50" 
+                           value={current.broken || ''} placeholder="0" onChange={e => handleQtyChange(p.id, 'broken', parseInt(e.target.value)||0)} />
+                     </div>
+                     <div className="col-span-2">
+                        <input type="number" min="0" className="w-full border border-blue-200 rounded p-1 text-center bg-blue-50" 
+                           value={current.unused || ''} placeholder="0" onChange={e => handleQtyChange(p.id, 'unused', parseInt(e.target.value)||0)} />
+                     </div>
+                  </div>
+               )
+            })}
+         </div>
+
+         <textarea 
+            className="w-full border p-3 rounded-lg mb-6 text-sm" 
+            rows={2} 
+            placeholder="Note aggiuntive..." 
+            value={notes} 
+            onChange={e => setNotes(e.target.value)}
+         />
+
+         <div className="flex gap-3">
+            <button onClick={handleSubmit} className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Salva Report</button>
+            <button onClick={onCancel} className="px-6 bg-gray-100 text-gray-700 rounded-lg font-medium">Annulla</button>
+         </div>
+      </div>
+   );
+};
+
+const LinenIssuesLogView: React.FC<{
+   reports: LinenIssueReport[];
+   structures: Structure[];
+   products: Product[];
+   users: User[];
+   onUpdateReport: (r: LinenIssueReport) => void;
+   onDeleteReport: (id: string) => void;
+}> = ({ reports, structures, products, users, onUpdateReport, onDeleteReport }) => {
+   const [startDate, setStartDate] = useState('');
+   const [endDate, setEndDate] = useState('');
+
+   // Filter
+   const filteredReports = useMemo(() => {
+      let res = [...reports];
+      if (startDate) {
+         res = res.filter(r => new Date(r.date) >= new Date(startDate));
+      }
+      if (endDate) {
+         // Include the whole end day
+         const end = new Date(endDate);
+         end.setHours(23, 59, 59);
+         res = res.filter(r => new Date(r.date) <= end);
+      }
+      return res.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+   }, [reports, startDate, endDate]);
+
+   const downloadCSV = () => {
+      const headers = ["ID", "Data", "Struttura", "Segnalatore", "Prodotto", "Sporchi", "Rotti", "Inutilizzati", "Note"];
+      const rows: string[] = [];
+      
+      rows.push(headers.join(","));
+
+      filteredReports.forEach(r => {
+         const structName = structures.find(s => s.id === r.structureId)?.name || 'N/A';
+         const reporterName = users.find(u => u.id === r.reporterId)?.name || 'N/A';
+         const dateStr = new Date(r.date).toLocaleString();
+
+         r.items.forEach(item => {
+            const prodName = products.find(p => p.id === item.productId)?.name || 'N/A';
+            const row = [
+               r.id,
+               `"${dateStr}"`,
+               `"${structName}"`,
+               `"${reporterName}"`,
+               `"${prodName}"`,
+               item.dirty,
+               item.broken,
+               item.unused,
+               `"${r.notes || ''}"`
+            ];
+            rows.push(row.join(","));
+         });
+      });
+
+      const csvContent = "data:text/csv;charset=utf-8," + rows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `report_biancheria_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+   };
+
+   // Simple Edit State just for deletion confirmation or small tweaks if needed
+   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+   return (
+      <div className="max-w-6xl mx-auto">
+         <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold flex items-center gap-2"><ClipboardList /> Log Biancheria</h2>
+            <button onClick={downloadCSV} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 shadow-sm font-medium">
+               <Download size={18} /> Scarica Excel/CSV
+            </button>
+         </div>
+
+         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 flex flex-wrap gap-4 items-end">
+            <div>
+               <label className="block text-xs font-bold text-gray-500 mb-1">Da:</label>
+               <input type="date" className="border p-2 rounded text-sm" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div>
+               <label className="block text-xs font-bold text-gray-500 mb-1">A:</label>
+               <input type="date" className="border p-2 rounded text-sm" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            </div>
+            <div className="pb-2 text-sm text-gray-400">
+               {filteredReports.length} report trovati
+            </div>
+         </div>
+
+         <div className="space-y-4">
+            {filteredReports.map(report => {
+               const struct = structures.find(s => s.id === report.structureId);
+               const reporter = users.find(u => u.id === report.reporterId);
+               
+               return (
+                  <div key={report.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                     <div className="flex justify-between items-start border-b border-gray-100 pb-2 mb-2">
+                        <div>
+                           <div className="font-bold text-lg text-gray-800">{struct?.name}</div>
+                           <div className="text-xs text-gray-500">{new Date(report.date).toLocaleString()} • {reporter?.name}</div>
+                        </div>
+                        <button onClick={() => setDeleteId(report.id)} className="text-red-400 hover:text-red-600 p-1">
+                           <Trash2 size={16} />
+                        </button>
+                     </div>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                           <thead>
+                              <tr className="text-gray-400 text-xs uppercase">
+                                 <th className="font-medium py-1">Prodotto</th>
+                                 <th className="font-medium py-1 text-orange-600">Sporco</th>
+                                 <th className="font-medium py-1 text-red-600">Rotto</th>
+                                 <th className="font-medium py-1 text-blue-600">Inutilizzato</th>
+                              </tr>
+                           </thead>
+                           <tbody>
+                              {report.items.map(item => {
+                                 const prod = products.find(p => p.id === item.productId);
+                                 return (
+                                    <tr key={item.productId} className="border-b border-gray-50 last:border-0">
+                                       <td className="py-1 font-medium text-gray-700">{prod?.name}</td>
+                                       <td className="py-1 font-mono">{item.dirty || '-'}</td>
+                                       <td className="py-1 font-mono">{item.broken || '-'}</td>
+                                       <td className="py-1 font-mono">{item.unused || '-'}</td>
+                                    </tr>
+                                 )
+                              })}
+                           </tbody>
+                        </table>
+                     </div>
+                     {report.notes && <div className="mt-2 text-xs text-gray-500 italic bg-gray-50 p-2 rounded">Note: {report.notes}</div>}
+                  </div>
+               );
+            })}
+            {filteredReports.length === 0 && <p className="text-center text-gray-400 py-10">Nessun dato trovato per il periodo selezionato.</p>}
+         </div>
+
+         <ConfirmationModal 
+            isOpen={!!deleteId}
+            title="Elimina Report"
+            message="Sei sicuro di voler eliminare questo report biancheria?"
+            onCancel={() => setDeleteId(null)}
+            onConfirm={() => {
+               if(deleteId) onDeleteReport(deleteId);
+               setDeleteId(null);
+            }}
+         />
+      </div>
+   );
 };
 
 const NewInventoryView: React.FC<{
@@ -777,7 +1128,8 @@ const NewInventoryView: React.FC<{
   // Store quantities in a map: productId -> quantity
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState('');
-  const [signature, setSignature] = useState<string | null>(null);
+  // Now signature is just a text string for the name
+  const [signature, setSignature] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleQuantityChange = (pid: string, val: number) => {
@@ -808,8 +1160,8 @@ const NewInventoryView: React.FC<{
   };
 
   const handleSubmit = () => {
-    if (!signature) {
-      alert("La firma è obbligatoria.");
+    if (!signature.trim()) {
+      alert("La firma (nome operatore) è obbligatoria.");
       return;
     }
     const items: InventoryItem[] = Object.entries(quantities)
@@ -827,7 +1179,7 @@ const NewInventoryView: React.FC<{
       operatorId: currentUser.id,
       date: new Date().toISOString(),
       items,
-      signatureUrl: signature, // For now storing base64 signature
+      signatureUrl: signature, // Stores the text name
       notes,
       type
     });
@@ -885,7 +1237,14 @@ const NewInventoryView: React.FC<{
        />
 
        <div className="mb-6">
-         <SignaturePad onSave={setSignature} onClear={() => setSignature(null)} />
+         <label className="block text-sm font-bold text-gray-700 mb-2">Firma Operatore (Scrivi il tuo nome)</label>
+         <input
+            type="text"
+            className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition"
+            placeholder="Es. Mario Rossi"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+         />
        </div>
 
        <div className="flex gap-3 pt-4 border-t">
@@ -1159,7 +1518,7 @@ const ManageOrdersView: React.FC<{
                              {canSend && (
                                <button onClick={() => handleStatusChange(order, OrderStatus.SENT)} className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2">
                                   <Send size={16} /> {order.type === 'LINEN' ? 'Invia in Lavanderia' : 'Approva e Invia'}
-                               </button>
+                                </button>
                              )}
                              
                              {/* Reception/Admin Action: Modify before sending */}
@@ -1302,395 +1661,254 @@ const SupplierDashboardView: React.FC<{
   );
 };
 
-const UserManagementView: React.FC<{ users: User[], setUsers: any, onAddUser: (u: User) => void, onDeleteUser: (id: string) => void }> = ({ users, onAddUser, onDeleteUser }) => {
-  const [newUser, setNewUser] = useState<Partial<User>>({ role: Role.OPERATOR });
-  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
-
-  const handleAddUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.password) {
-      alert('Compila tutti i campi');
-      return;
-    }
-    const user: User = {
-      id: `u-${Date.now()}`,
-      name: newUser.name!,
-      email: newUser.email!,
-      role: newUser.role as Role,
-      password: newUser.password
-    };
-    onAddUser(user);
-    setNewUser({ role: Role.OPERATOR, name: '', email: '', password: '' });
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Gestione Utenti (DB)</h2>
-      </div>
-      
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8">
-        <h3 className="font-bold text-gray-700 mb-4">Aggiungi Utente</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <input 
-            placeholder="Nome" 
-            className="border p-2 rounded" 
-            value={newUser.name || ''} 
-            onChange={e => setNewUser({...newUser, name: e.target.value})} 
-          />
-          <input 
-            placeholder="Email" 
-            className="border p-2 rounded" 
-            value={newUser.email || ''} 
-            onChange={e => setNewUser({...newUser, email: e.target.value})} 
-          />
-          <input 
-            placeholder="Password" 
-            type="password"
-            className="border p-2 rounded" 
-            value={newUser.password || ''} 
-            onChange={e => setNewUser({...newUser, password: e.target.value})} 
-          />
-          <select 
-            className="border p-2 rounded"
-            value={newUser.role}
-            onChange={e => setNewUser({...newUser, role: e.target.value as Role})}
-          >
-            {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-        <button onClick={handleAddUser} className="bg-emerald-600 text-white px-4 py-2 rounded">Crea Utente</button>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4">Nome</th>
-              <th className="p-4">Email</th>
-              <th className="p-4">Ruolo</th>
-              <th className="p-4">Azioni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(user => (
-              <tr key={user.id} className="border-b">
-                <td className="p-4 font-medium">{user.name}</td>
-                <td className="p-4 text-gray-500">{user.email}</td>
-                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs">{user.role}</span></td>
-                <td className="p-4">
-                  <button onClick={() => setDeleteConfirmationId(user.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <ConfirmationModal
-        isOpen={!!deleteConfirmationId}
-        title="Elimina Utente"
-        message="Sei sicuro di voler eliminare questo utente dal database?"
-        onCancel={() => setDeleteConfirmationId(null)}
-        onConfirm={() => {
-           if (deleteConfirmationId) onDeleteUser(deleteConfirmationId);
-           setDeleteConfirmationId(null);
-        }}
-      />
-    </div>
-  );
-};
-
-const ProductManagementView: React.FC<{ products: Product[], setProducts: any, onAddProduct: (p: Product) => void, onDeleteProduct: (id: string) => void }> = ({ products, onAddProduct, onDeleteProduct }) => {
-  const [newProd, setNewProd] = useState<Partial<Product>>({ category: 'CLEANING', type: 'PRODUCT', unit: 'Pz' });
-  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    if (!newProd.name) return;
-    const prod: Product = {
-      id: `p-${Date.now()}`,
-      name: newProd.name,
-      category: newProd.category as any,
-      type: newProd.type as ItemType,
-      unit: newProd.unit || 'Pz'
-    };
-    onAddProduct(prod);
-    setNewProd({ category: 'CLEANING', type: 'PRODUCT', unit: 'Pz', name: '' });
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Catalogo Prodotti (DB)</h2>
-      
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8">
-        <h3 className="font-bold text-gray-700 mb-4">Nuovo Prodotto</h3>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-4">
-          <input 
-            placeholder="Nome Prodotto" 
-            className="col-span-2 border p-2 rounded" 
-            value={newProd.name || ''} 
-            onChange={e => setNewProd({...newProd, name: e.target.value})} 
-          />
-          <select 
-            className="border p-2 rounded"
-            value={newProd.category}
-            onChange={e => setNewProd({...newProd, category: e.target.value as any})}
-          >
-            <option value="CLEANING">Pulizia</option>
-            <option value="FOOD">Cibo/Bevande</option>
-            <option value="AMENITIES">Amenities</option>
-            <option value="LINEN_BED">Lenzuola</option>
-            <option value="LINEN_BATH">Bagno</option>
-            <option value="OTHER">Altro</option>
-          </select>
-          <select 
-            className="border p-2 rounded"
-            value={newProd.type}
-            onChange={e => setNewProd({...newProd, type: e.target.value as ItemType})}
-          >
-            <option value="PRODUCT">Consumabile</option>
-            <option value="LINEN">Biancheria</option>
-          </select>
-           <input 
-            placeholder="Unità (Pz, Lt...)" 
-            className="border p-2 rounded" 
-            value={newProd.unit || ''} 
-            onChange={e => setNewProd({...newProd, unit: e.target.value})} 
-          />
-        </div>
-        <button onClick={handleAdd} className="bg-emerald-600 text-white px-4 py-2 rounded">Aggiungi</button>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-3">Nome</th>
-              <th className="p-3">Categoria</th>
-              <th className="p-3">Tipo</th>
-              <th className="p-3">Unità</th>
-              <th className="p-3">Azioni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map(p => (
-              <tr key={p.id} className="border-b hover:bg-gray-50">
-                <td className="p-3 font-medium">{p.name}</td>
-                <td className="p-3 text-gray-500">{p.category}</td>
-                <td className="p-3"><span className={`px-2 py-0.5 rounded text-xs ${p.type === 'LINEN' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>{p.type}</span></td>
-                <td className="p-3">{p.unit}</td>
-                <td className="p-3">
-                  <button onClick={() => setDeleteConfirmationId(p.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      
-      <ConfirmationModal
-        isOpen={!!deleteConfirmationId}
-        title="Elimina Prodotto"
-        message="Sei sicuro di voler eliminare questo prodotto?"
-        onCancel={() => setDeleteConfirmationId(null)}
-        onConfirm={() => {
-           if (deleteConfirmationId) onDeleteProduct(deleteConfirmationId);
-           setDeleteConfirmationId(null);
-        }}
-      />
-    </div>
-  );
-};
-
-const DashboardView: React.FC<{ 
-  structures: Structure[], 
-  onSelectStructure: (id: string) => void, 
-  onAddStructure: (s: Structure) => void,
-  onUpdateImage: (id: string, url: string) => void,
-  role: Role,
-  pendingOrdersCount: number,
-  onNavigateToOrders: () => void
+const DashboardView: React.FC<{
+  structures: Structure[];
+  onSelectStructure: (id: string) => void;
+  onAddStructure: (s: any) => Promise<void>;
+  onUpdateImage: (id: string, url: string) => Promise<void>;
+  role: Role;
+  pendingOrdersCount: number;
+  onNavigateToOrders: () => void;
 }> = ({ structures, onSelectStructure, onAddStructure, onUpdateImage, role, pendingOrdersCount, onNavigateToOrders }) => {
-  
   const [isAdding, setIsAdding] = useState(false);
   const [newStruct, setNewStruct] = useState({ name: '', address: '', accessCodes: '' });
 
-  // State for Image Editing
-  const [editingImageState, setEditingImageState] = useState<{ id: string, currentUrl: string } | null>(null);
-
-  const handleSaveNew = () => {
-    if (!newStruct.name || !newStruct.address) {
-      alert("Nome e Indirizzo sono obbligatori");
-      return;
-    }
-    const s: Structure = {
+  const handleAdd = async () => {
+    if(!newStruct.name || !newStruct.address) return;
+    await onAddStructure({
       id: `s-${Date.now()}`,
-      name: newStruct.name,
-      address: newStruct.address,
-      accessCodes: newStruct.accessCodes || 'Da inserire'
-    };
-    onAddStructure(s);
-    setNewStruct({ name: '', address: '', accessCodes: '' });
+      ...newStruct,
+      imageUrl: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=80' // default
+    });
     setIsAdding(false);
+    setNewStruct({ name: '', address: '', accessCodes: '' });
   };
 
-  const handleUpdateImage = () => {
-    if (editingImageState) {
-      onUpdateImage(editingImageState.id, editingImageState.currentUrl);
-      setEditingImageState(null);
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: string) => {
+    const file = e.target.files?.[0];
+    if (file) {
+       const reader = new FileReader();
+       reader.onloadend = () => {
+          onUpdateImage(id, reader.result as string);
+       };
+       reader.readAsDataURL(file);
     }
   };
 
   return (
-    <div>
-      {(role === Role.ADMIN || role === Role.RECEPTION) && pendingOrdersCount > 0 && (
-         <div 
-           onClick={onNavigateToOrders}
-           className="mb-6 bg-orange-50 border border-orange-200 p-4 rounded-xl flex items-center justify-between cursor-pointer hover:bg-orange-100 transition shadow-sm"
-         >
-            <div className="flex items-center gap-3">
-               <div className="bg-orange-100 p-2 rounded-full text-orange-600">
-                  <Bell size={24} />
-               </div>
-               <div>
-                  <h3 className="font-bold text-orange-900">Hai {pendingOrdersCount} nuovi ordini da confermare</h3>
-                  <p className="text-sm text-orange-700">Clicca qui per gestire gli ordini in sospeso.</p>
-               </div>
-            </div>
-            <div className="bg-orange-600 text-white px-3 py-1 rounded-lg text-sm font-bold">
-               Vedi
-            </div>
-         </div>
-      )}
-
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Zone & Strutture Gestite</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {structures.map(structure => (
-          <div 
-            key={structure.id} 
-            onClick={() => onSelectStructure(structure.id)}
-            className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-100 overflow-hidden"
-          >
-            <div className="h-32 bg-slate-200 relative group">
-                <img 
-                  src={structure.imageUrl || `https://picsum.photos/seed/${structure.id}/800/400`} 
-                  alt={structure.name} 
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end p-4">
-                   <h3 className="text-white font-bold text-lg">{structure.name}</h3>
-                </div>
-                
-                {/* Pencil Edit Icon for Image - Visible on Hover or if user knows where it is */}
-                {(role === Role.ADMIN || role === Role.RECEPTION) && (
-                   <button 
-                      onClick={(e) => {
-                         e.stopPropagation();
-                         setEditingImageState({ id: structure.id, currentUrl: structure.imageUrl || '' });
-                      }}
-                      className="absolute top-2 right-2 bg-white/90 p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500 hover:text-white"
-                   >
-                      <Edit size={16} />
-                   </button>
-                )}
-            </div>
-            <div className="p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                   <p className="text-sm text-gray-500 flex items-center gap-1">
-                      <Users size={14} /> {structure.address}
-                   </p>
-                   {role !== Role.OPERATOR && (
-                    <p className="text-xs text-gray-400 mt-2 font-mono bg-gray-100 p-1 rounded inline-block">
-                        Cod: {structure.accessCodes}
-                    </p>
-                   )}
-                </div>
-                {/* Visual indicator (edit general details, not image) */}
-                <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400">
-                    <Edit size={16} />
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-        {/* Add Structure Card */}
+    <div className="max-w-6xl mx-auto">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Zone e Strutture</h1>
+          <p className="text-gray-500 mt-1">Gestisci le proprietà e monitora lo stato.</p>
+        </div>
         {role === Role.ADMIN && (
-          isAdding ? (
-            <div className="bg-white rounded-xl shadow-lg border border-emerald-500 p-6 flex flex-col gap-3">
-               <h3 className="font-bold text-emerald-800">Nuova Struttura</h3>
-               <input 
-                 placeholder="Nome Struttura"
-                 className="border p-2 rounded"
-                 value={newStruct.name}
-                 onChange={e => setNewStruct({...newStruct, name: e.target.value})}
-               />
-               <input 
-                 placeholder="Indirizzo"
-                 className="border p-2 rounded"
-                 value={newStruct.address}
-                 onChange={e => setNewStruct({...newStruct, address: e.target.value})}
-               />
-               <input 
-                 placeholder="Codici Accesso"
-                 className="border p-2 rounded"
-                 value={newStruct.accessCodes}
-                 onChange={e => setNewStruct({...newStruct, accessCodes: e.target.value})}
-               />
-               <div className="flex gap-2 mt-2">
-                 <button onClick={handleSaveNew} className="bg-emerald-600 text-white px-4 py-2 rounded flex-1">Salva</button>
-                 <button onClick={() => setIsAdding(false)} className="bg-gray-200 text-gray-600 px-4 py-2 rounded">Annulla</button>
-               </div>
-            </div>
-          ) : (
-            <div 
-              onClick={() => setIsAdding(true)}
-              className="bg-gray-50 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 hover:bg-emerald-50 transition p-8 h-[240px]"
-            >
-               <div className="bg-white p-4 rounded-full shadow-sm mb-4">
-                  <Plus size={24} className="text-emerald-600" />
-               </div>
-               <p className="font-bold text-gray-600">Aggiungi Struttura</p>
-            </div>
-          )
+          <button onClick={() => setIsAdding(true)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition shadow-sm">
+            <Plus size={20} /> Aggiungi Struttura
+          </button>
         )}
       </div>
 
-      {/* Image Edit Modal */}
-      {editingImageState && (
-         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
-               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                 <ImageIcon className="text-emerald-600" /> Modifica Foto Struttura
-               </h3>
-               <p className="text-sm text-gray-500 mb-4">Inserisci l'URL dell'immagine (es. Unsplash o link pubblico).</p>
-               
-               <input 
-                 type="text" 
-                 className="w-full border p-3 rounded-lg mb-4 text-sm"
-                 placeholder="https://..."
-                 value={editingImageState.currentUrl}
-                 onChange={(e) => setEditingImageState({ ...editingImageState, currentUrl: e.target.value })}
-               />
-               
-               <div className="flex gap-2 justify-end">
-                  <button 
-                    onClick={() => setEditingImageState(null)} 
-                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
-                  >
-                    Annulla
-                  </button>
-                  <button 
-                    onClick={handleUpdateImage} 
-                    className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
-                  >
-                    Salva Immagine
-                  </button>
+      {pendingOrdersCount > 0 && (
+         <div onClick={onNavigateToOrders} className="cursor-pointer bg-orange-50 border border-orange-200 p-4 rounded-xl mb-8 flex items-center justify-between hover:bg-orange-100 transition shadow-sm">
+            <div className="flex items-center gap-3">
+               <div className="bg-orange-100 p-2 rounded-full text-orange-600">
+                  <ShoppingCart size={24} />
                </div>
+               <div>
+                  <h3 className="font-bold text-orange-800">Ci sono ordini in attesa!</h3>
+                  <p className="text-orange-700 text-sm">Hai {pendingOrdersCount} richieste da approvare.</p>
+               </div>
+            </div>
+            <div className="bg-white px-4 py-2 rounded-lg text-orange-600 font-bold text-sm shadow-sm">Vedi Ordini</div>
+         </div>
+      )}
+
+      {isAdding && (
+         <div className="bg-white p-6 rounded-xl shadow-lg mb-8 border border-emerald-100 animate-fade-in-down">
+            <h3 className="font-bold text-lg mb-4">Nuova Struttura</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+               <input placeholder="Nome struttura" className="border p-2 rounded" value={newStruct.name} onChange={e => setNewStruct({...newStruct, name: e.target.value})} />
+               <input placeholder="Indirizzo" className="border p-2 rounded" value={newStruct.address} onChange={e => setNewStruct({...newStruct, address: e.target.value})} />
+               <input placeholder="Codici Accesso" className="border p-2 rounded" value={newStruct.accessCodes} onChange={e => setNewStruct({...newStruct, accessCodes: e.target.value})} />
+            </div>
+            <div className="flex justify-end gap-2">
+               <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">Annulla</button>
+               <button onClick={handleAdd} className="px-4 py-2 bg-emerald-600 text-white rounded font-bold">Salva</button>
             </div>
          </div>
       )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {structures.map(structure => (
+          <div key={structure.id} className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer" onClick={() => onSelectStructure(structure.id)}>
+             <div className="h-48 bg-gray-200 relative overflow-hidden">
+                <img 
+                  src={structure.imageUrl || `https://picsum.photos/seed/${structure.id}/800/600`} 
+                  alt={structure.name} 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
+                   <h3 className="text-white font-bold text-xl drop-shadow-md">{structure.name}</h3>
+                </div>
+                {role === Role.ADMIN && (
+                   <label className="absolute top-2 right-2 bg-white/90 p-2 rounded-full cursor-pointer hover:bg-white transition" onClick={e => e.stopPropagation()}>
+                      <ImageIcon size={16} className="text-gray-600" />
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, structure.id)} />
+                   </label>
+                )}
+             </div>
+             <div className="p-6">
+                <div className="flex items-start gap-3 mb-4 text-gray-500">
+                   <MapPin size={18} className="mt-1 flex-shrink-0 text-emerald-500" />
+                   <p className="text-sm leading-relaxed">{structure.address}</p>
+                </div>
+                <div className="flex justify-between items-center border-t border-gray-100 pt-4 mt-2">
+                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Gestisci</span>
+                   <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                      <Users size={16} />
+                   </div>
+                </div>
+             </div>
+          </div>
+        ))}
+        {structures.length === 0 && (
+           <div className="col-span-full text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300">
+              <Building2 size={48} className="mx-auto mb-4 opacity-50" />
+              <p>Nessuna struttura presente. Aggiungine una per iniziare.</p>
+           </div>
+        )}
+      </div>
     </div>
   );
+};
+
+const UserManagementView: React.FC<{
+  users: User[];
+  setUsers: (u: User[]) => void;
+  onAddUser: (u: any) => Promise<void>;
+  onDeleteUser: (id: string) => Promise<void>;
+}> = ({ users, onAddUser, onDeleteUser }) => {
+   const [newUser, setNewUser] = useState({ name: '', email: '', role: Role.OPERATOR, password: '' });
+
+   const handleAdd = async () => {
+      if(!newUser.name || !newUser.email || !newUser.password) return;
+      await onAddUser({ id: `u-${Date.now()}`, ...newUser });
+      setNewUser({ name: '', email: '', role: Role.OPERATOR, password: '' });
+   };
+
+   return (
+      <div className="max-w-4xl mx-auto">
+         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Users /> Gestione Utenti</h2>
+
+         <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-gray-100">
+            <h3 className="font-bold mb-4">Aggiungi Utente</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+               <input placeholder="Nome" className="border p-2 rounded" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+               <input placeholder="Email" className="border p-2 rounded" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
+               <input placeholder="Password" type="password" className="border p-2 rounded" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+               <select className="border p-2 rounded" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as Role})}>
+                  {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
+               </select>
+            </div>
+            <button onClick={handleAdd} className="bg-emerald-600 text-white px-4 py-2 rounded font-bold hover:bg-emerald-700 w-full md:w-auto">Aggiungi</button>
+         </div>
+
+         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left">
+               <thead className="bg-gray-50 border-b">
+                  <tr>
+                     <th className="p-4">Nome</th>
+                     <th className="p-4">Email</th>
+                     <th className="p-4">Ruolo</th>
+                     <th className="p-4 w-20">Azioni</th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {users.map(u => (
+                     <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{u.name}</td>
+                        <td className="p-4 text-gray-500">{u.email}</td>
+                        <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{u.role}</span></td>
+                        <td className="p-4 text-center">
+                           <button onClick={() => onDeleteUser(u.id)} className="text-red-500 hover:bg-red-50 p-2 rounded"><Trash2 size={18} /></button>
+                        </td>
+                     </tr>
+                  ))}
+               </tbody>
+            </table>
+         </div>
+      </div>
+   );
+};
+
+const ProductManagementView: React.FC<{
+  products: Product[];
+  setProducts: (p: Product[]) => void;
+  onAddProduct: (p: any) => Promise<void>;
+  onDeleteProduct: (id: string) => Promise<void>;
+}> = ({ products, onAddProduct, onDeleteProduct }) => {
+   const [newProd, setNewProd] = useState<Partial<Product>>({ name: '', category: 'CLEANING', unit: 'Pz', type: 'PRODUCT' });
+
+   const handleAdd = async () => {
+      if(!newProd.name) return;
+      await onAddProduct({ id: `p-${Date.now()}`, ...newProd });
+      setNewProd({ name: '', category: 'CLEANING', unit: 'Pz', type: 'PRODUCT' });
+   };
+
+   return (
+      <div className="max-w-4xl mx-auto">
+         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Box /> Catalogo Prodotti</h2>
+
+         <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-gray-100">
+            <h3 className="font-bold mb-4">Nuovo Prodotto</h3>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+               <input placeholder="Nome Prodotto" className="border p-2 rounded col-span-2" value={newProd.name} onChange={e => setNewProd({...newProd, name: e.target.value})} />
+               <select className="border p-2 rounded" value={newProd.category} onChange={e => setNewProd({...newProd, category: e.target.value as any})}>
+                  <option value="CLEANING">Pulizia</option>
+                  <option value="FOOD">Cibo/Bevande</option>
+                  <option value="AMENITIES">Amenities</option>
+                  <option value="LINEN_BED">Biancheria Letto</option>
+                  <option value="LINEN_BATH">Biancheria Bagno</option>
+                  <option value="OTHER">Altro</option>
+               </select>
+               <select className="border p-2 rounded" value={newProd.type} onChange={e => setNewProd({...newProd, type: e.target.value as any})}>
+                  <option value="PRODUCT">Consumabile</option>
+                  <option value="LINEN">Biancheria</option>
+               </select>
+               <input placeholder="Unità (es. Pz, Lt)" className="border p-2 rounded" value={newProd.unit} onChange={e => setNewProd({...newProd, unit: e.target.value})} />
+            </div>
+            <button onClick={handleAdd} className="bg-emerald-600 text-white px-4 py-2 rounded font-bold hover:bg-emerald-700 w-full md:w-auto">Aggiungi a Catalogo</button>
+         </div>
+
+         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left">
+               <thead className="bg-gray-50 border-b">
+                  <tr>
+                     <th className="p-4">Prodotto</th>
+                     <th className="p-4">Categoria</th>
+                     <th className="p-4">Tipo</th>
+                     <th className="p-4">Unità</th>
+                     <th className="p-4 w-20">Azioni</th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {products.map(p => (
+                     <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{p.name}</td>
+                        <td className="p-4 text-sm text-gray-500">{p.category}</td>
+                        <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${p.type === 'LINEN' ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'}`}>{p.type}</span></td>
+                        <td className="p-4 text-sm text-gray-500">{p.unit}</td>
+                        <td className="p-4 text-center">
+                           <button onClick={() => onDeleteProduct(p.id)} className="text-red-500 hover:bg-red-50 p-2 rounded"><Trash2 size={18} /></button>
+                        </td>
+                     </tr>
+                  ))}
+               </tbody>
+            </table>
+         </div>
+      </div>
+   );
 };
 
 export default App;
