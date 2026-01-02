@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Wrench, CheckCircle2, Download, ClipboardList, Calendar
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Wrench, CheckCircle2, Download, ClipboardList, Calendar, Filter, X as XIcon
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
@@ -10,6 +10,7 @@ import {
 } from './types';
 import { analyzeInventoryImage } from './services/geminiService';
 import { supabase } from './supabaseClient';
+import { SignaturePad } from './components/SignaturePad';
 
 // --- Helpers to map snake_case (DB) to camelCase (App) ---
 
@@ -78,7 +79,7 @@ const App: React.FC = () => {
          supabase.from('inventories').select('*'),
          supabase.from('orders').select('*'),
          supabase.from('damage_reports').select('*'),
-         supabase.from('linen_reports').select('*') // Assuming table exists
+         supabase.from('linen_reports').select('*') 
        ]);
 
        if (resUsers.error) throw resUsers.error;
@@ -118,7 +119,6 @@ const App: React.FC = () => {
   // --- Handlers (Now async with DB) ---
 
   const handleLogin = (email: string, pass: string) => {
-    // Simple check against fetched users (Security note: implement proper Supabase Auth in production)
     const user = users.find(u => u.email === email && u.password === pass);
     if (user) {
       setCurrentUser(user);
@@ -322,7 +322,6 @@ const App: React.FC = () => {
                   products={products}
                   users={users}
                   onUpdateReport={async (updated) => {
-                     // Simplified edit: just re-save
                      const { error } = await supabase.from('linen_reports').update({
                        items: updated.items, notes: updated.notes
                      }).eq('id', updated.id);
@@ -408,7 +407,6 @@ const App: React.FC = () => {
                   }}
                />;
       default:
-        // Default fallback
         if (currentUser.role === Role.SUPPLIER) return <SupplierDashboardView orders={orders} structures={structures} products={products} users={users} />;
         return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={async ()=>{}} onUpdateImage={async ()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
     }
@@ -434,7 +432,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Sidebar / Drawer */}
+      {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         md:relative md:translate-x-0 transition duration-200 ease-in-out
@@ -475,7 +473,6 @@ const App: React.FC = () => {
                 onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} 
               />
               
-              {/* Sezione Ordini visibile a Admin, Reception E Operatori (per gestire i propri) */}
               {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION || currentUser.role === Role.OPERATOR) && (
                 <>
                   <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Operatività</div>
@@ -532,7 +529,6 @@ const App: React.FC = () => {
         </button>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
         {renderContent()}
       </main>
@@ -662,6 +658,10 @@ const StructureDetailView: React.FC<{
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Structure | null>(null);
 
+  // Filtri Data Ordini
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+
   useEffect(() => {
     if (structure) setEditForm(structure);
   }, [structure]);
@@ -669,7 +669,29 @@ const StructureDetailView: React.FC<{
   if (!structure) return <div>Struttura non trovata</div>;
 
   const structInventories = inventories.filter(i => i.structureId === structure.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const structOrders = orders.filter(o => o.structureId === structure.id).sort((a, b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
+  
+  // Logic per filtrare gli ordini
+  const structOrders = orders
+    .filter(o => o.structureId === structure.id)
+    .filter(o => {
+      // Filtro DA data
+      if (filterDateFrom) {
+         const fromDate = new Date(filterDateFrom);
+         fromDate.setHours(0,0,0,0);
+         const orderDate = new Date(o.dateCreated);
+         if (orderDate < fromDate) return false;
+      }
+      // Filtro A data
+      if (filterDateTo) {
+         const toDate = new Date(filterDateTo);
+         toDate.setHours(23,59,59,999);
+         const orderDate = new Date(o.dateCreated);
+         if (orderDate > toDate) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
+
   const structDamages = damageReports.filter(d => d.structureId === structure.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handleSaveEdit = () => {
@@ -734,42 +756,31 @@ const StructureDetailView: React.FC<{
       <div className="space-y-6">
         {activeTab === 'info' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             {/* Inventario Prodotti */}
              <div onClick={() => onNewInventory('PRODUCT')} className="cursor-pointer bg-emerald-50 border border-emerald-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-emerald-600 mb-3 shadow-sm"><Box /></div>
                 <h3 className="font-bold text-lg text-emerald-900">Inventario Prodotti</h3>
                 <p className="text-emerald-700 text-sm">Controlla e registra i consumabili</p>
              </div>
-
-             {/* Inventario Biancheria */}
              <div onClick={() => onNewInventory('LINEN')} className="cursor-pointer bg-indigo-50 border border-indigo-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-indigo-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-indigo-900">Conta Biancheria</h3>
                 <p className="text-indigo-700 text-sm">Gestione lavanderia e cambi</p>
              </div>
-
-             {/* Ordina Forniture */}
              <div onClick={() => onRequestOrder('PRODUCT')} className="cursor-pointer bg-orange-50 border border-orange-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-orange-600 mb-3 shadow-sm"><ShoppingCart /></div>
                 <h3 className="font-bold text-lg text-orange-900">Ordina Forniture</h3>
                 <p className="text-orange-700 text-sm">Richiedi prodotti mancanti</p>
              </div>
-
-             {/* Ordina Biancheria */}
              <div onClick={() => onRequestOrder('LINEN')} className="cursor-pointer bg-sky-50 border border-sky-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-sky-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-sky-900">Ordina Biancheria</h3>
                 <p className="text-sky-700 text-sm">Richiedi set biancheria</p>
              </div>
-             
-             {/* Biancheria Sporca/Rotta */}
              <div onClick={onLinenIssue} className="cursor-pointer bg-purple-50 border border-purple-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-purple-600 mb-3 shadow-sm"><ClipboardList /></div>
                 <h3 className="font-bold text-lg text-purple-900">Biancheria Sporca/Rotta</h3>
                 <p className="text-purple-700 text-sm">Dichiara biancheria inutilizzata</p>
              </div>
-
-             {/* Segnalazione Danni */}
              <div onClick={() => onReportDamage('PRODUCT')} className="cursor-pointer bg-red-50 border border-red-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-red-600 mb-3 shadow-sm"><AlertTriangle /></div>
                 <h3 className="font-bold text-lg text-red-900">Segnala Guasto</h3>
@@ -802,6 +813,39 @@ const StructureDetailView: React.FC<{
 
         {activeTab === 'orders' && (
            <div className="space-y-4">
+             {/* Filtri Data */}
+             <div className="bg-gray-50 p-4 rounded-lg flex flex-wrap gap-4 items-end border border-gray-100 mb-4">
+                <div className="flex items-center gap-2 text-gray-500 font-medium mb-1 w-full md:w-auto">
+                   <Filter size={16} /> Filtra per data
+                </div>
+                <div>
+                   <label className="block text-xs font-medium text-gray-500 mb-1">Da:</label>
+                   <input 
+                      type="date" 
+                      value={filterDateFrom} 
+                      onChange={(e) => setFilterDateFrom(e.target.value)} 
+                      className="border rounded p-2 text-sm bg-white"
+                   />
+                </div>
+                <div>
+                   <label className="block text-xs font-medium text-gray-500 mb-1">A:</label>
+                   <input 
+                      type="date" 
+                      value={filterDateTo} 
+                      onChange={(e) => setFilterDateTo(e.target.value)} 
+                      className="border rounded p-2 text-sm bg-white"
+                   />
+                </div>
+                {(filterDateFrom || filterDateTo) && (
+                  <button 
+                    onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }}
+                    className="text-sm text-red-600 hover:text-red-800 underline pb-2 flex items-center gap-1"
+                  >
+                    <XIcon size={14} /> Resetta
+                  </button>
+                )}
+             </div>
+
              {structOrders.map(ord => (
                 <div key={ord.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
                    <div className="flex justify-between items-center mb-2">
@@ -814,7 +858,7 @@ const StructureDetailView: React.FC<{
                    <p className="text-xs text-gray-400 mt-1">{ord.items.length} articoli</p>
                 </div>
              ))}
-             {structOrders.length === 0 && <p className="text-gray-400 text-center py-8">Nessun ordine recente</p>}
+             {structOrders.length === 0 && <p className="text-gray-400 text-center py-8">Nessun ordine trovato nel periodo selezionato</p>}
            </div>
         )}
 
@@ -836,8 +880,6 @@ const StructureDetailView: React.FC<{
                      <p className="text-gray-800 mb-3">{dmg.notes}</p>
                      <div className="flex justify-between items-center">
                         <p className="text-xs text-gray-400">Segnalato da: {users.find(u => u.id === dmg.reporterId)?.name}</p>
-                        
-                        {/* Action Buttons */}
                         {currentUser.role !== Role.SUPPLIER && (
                           <div className="flex gap-2">
                              {!isResolved && (
@@ -889,7 +931,6 @@ const NewLinenIssueView: React.FC<{
    };
 
    const handleSubmit = () => {
-      // Convert map to array
       const reportItems: LinenIssueItem[] = Object.entries(items).map(([pid, counts]) => ({
          productId: pid,
          dirty: counts.dirty || 0,
@@ -993,31 +1034,17 @@ const LinenIssuesLogView: React.FC<{
    const downloadCSV = () => {
       const headers = ["ID", "Data", "Struttura", "Segnalatore", "Prodotto", "Sporchi", "Rotti", "Inutilizzati", "Note"];
       const rows: string[] = [];
-      
       rows.push(headers.join(","));
-
       filteredReports.forEach(r => {
          const structName = structures.find(s => s.id === r.structureId)?.name || 'N/A';
          const reporterName = users.find(u => u.id === r.reporterId)?.name || 'N/A';
          const dateStr = new Date(r.date).toLocaleString();
-
          r.items.forEach(item => {
             const prodName = products.find(p => p.id === item.productId)?.name || 'N/A';
-            const row = [
-               r.id,
-               `"${dateStr}"`,
-               `"${structName}"`,
-               `"${reporterName}"`,
-               `"${prodName}"`,
-               item.dirty,
-               item.broken,
-               item.unused,
-               `"${r.notes || ''}"`
-            ];
+            const row = [r.id, `"${dateStr}"`, `"${structName}"`, `"${reporterName}"`, `"${prodName}"`, item.dirty, item.broken, item.unused, `"${r.notes || ''}"`];
             rows.push(row.join(","));
          });
       });
-
       const csvContent = "data:text/csv;charset=utf-8," + rows.join("\n");
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
@@ -1028,7 +1055,6 @@ const LinenIssuesLogView: React.FC<{
       document.body.removeChild(link);
    };
 
-   // Simple Edit State just for deletion confirmation or small tweaks if needed
    const [deleteId, setDeleteId] = useState<string | null>(null);
 
    return (
@@ -1058,7 +1084,6 @@ const LinenIssuesLogView: React.FC<{
             {filteredReports.map(report => {
                const struct = structures.find(s => s.id === report.structureId);
                const reporter = users.find(u => u.id === report.reporterId);
-               
                return (
                   <div key={report.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                      <div className="flex justify-between items-start border-b border-gray-100 pb-2 mb-2">
@@ -1128,8 +1153,7 @@ const NewInventoryView: React.FC<{
   // Store quantities in a map: productId -> quantity
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState('');
-  // Now signature is just a text string for the name
-  const [signature, setSignature] = useState('');
+  const [signature, setSignature] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleQuantityChange = (pid: string, val: number) => {
@@ -1144,7 +1168,6 @@ const NewInventoryView: React.FC<{
       reader.onloadend = async () => {
          const base64 = reader.result as string;
          const results = await analyzeInventoryImage(base64, filteredProducts);
-         // Merge results
          const newQuantities = { ...quantities };
          results.forEach((item: any) => {
             const prod = filteredProducts.find(p => p.name.toLowerCase() === item.productName?.toLowerCase());
@@ -1160,8 +1183,8 @@ const NewInventoryView: React.FC<{
   };
 
   const handleSubmit = () => {
-    if (!signature.trim()) {
-      alert("La firma (nome operatore) è obbligatoria.");
+    if (!signature) {
+      alert("La firma è obbligatoria.");
       return;
     }
     const items: InventoryItem[] = Object.entries(quantities)
@@ -1179,7 +1202,7 @@ const NewInventoryView: React.FC<{
       operatorId: currentUser.id,
       date: new Date().toISOString(),
       items,
-      signatureUrl: signature, // Stores the text name
+      signatureUrl: signature, // For now storing base64 signature
       notes,
       type
     });
@@ -1237,14 +1260,7 @@ const NewInventoryView: React.FC<{
        />
 
        <div className="mb-6">
-         <label className="block text-sm font-bold text-gray-700 mb-2">Firma Operatore (Scrivi il tuo nome)</label>
-         <input
-            type="text"
-            className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition"
-            placeholder="Es. Mario Rossi"
-            value={signature}
-            onChange={(e) => setSignature(e.target.value)}
-         />
+         <SignaturePad onSave={setSignature} onClear={() => setSignature(null)} />
        </div>
 
        <div className="flex gap-3 pt-4 border-t">
@@ -1342,7 +1358,7 @@ const NewDamageReportView: React.FC<{
         structureId,
         reporterId: currentUser.id,
         date: new Date().toISOString(),
-        items: [], // For simplicity, just text report for now or can add item selector
+        items: [],
         notes,
         status: 'OPEN'
       });
@@ -1393,7 +1409,6 @@ const ManageOrdersView: React.FC<{
   };
 
   const saveEditing = (order: Order) => {
-    // Filter out 0 quantities
     const finalItems = tempItems.filter(i => i.quantity > 0);
     if (finalItems.length === 0) {
       alert("L'ordine non può essere vuoto. Eliminalo se necessario.");
@@ -1427,11 +1442,10 @@ const ManageOrdersView: React.FC<{
   const canEdit = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION;
   const canSend = currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION;
   
-  // Operators can delete pending orders
   const canDelete = (order: Order) => {
      if (order.status !== OrderStatus.PENDING) return false;
      if (currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) return true;
-     if (currentUser.role === Role.OPERATOR) return true; // As per requirement: "4 operatore , reception possono eliminare ordini"
+     if (currentUser.role === Role.OPERATOR) return true;
      return false;
   }
 
@@ -1514,21 +1528,18 @@ const ManageOrdersView: React.FC<{
                            </>
                         ) : (
                            <>
-                             {/* Reception/Admin Action: Send to Supplier */}
                              {canSend && (
                                <button onClick={() => handleStatusChange(order, OrderStatus.SENT)} className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2">
                                   <Send size={16} /> {order.type === 'LINEN' ? 'Invia in Lavanderia' : 'Approva e Invia'}
-                                </button>
+                               </button>
                              )}
                              
-                             {/* Reception/Admin Action: Modify before sending */}
                              {canEdit && (
                                <button onClick={() => startEditing(order)} className="border border-gray-300 text-gray-700 py-2 rounded hover:bg-gray-50 transition flex items-center justify-center gap-2">
                                   <Edit size={16} /> Modifica
                                </button>
                              )}
 
-                             {/* Delete Action: Operator/Reception/Admin */}
                              {canDelete(order) && (
                                <button onClick={() => onDeleteOrder(order.id)} className="border border-red-200 text-red-600 py-2 rounded hover:bg-red-50 transition flex items-center justify-center gap-2">
                                   <Trash2 size={16} /> Elimina
@@ -1538,7 +1549,6 @@ const ManageOrdersView: React.FC<{
                         )}
                      </>
                    ) : (
-                     /* Logic for SENT orders */
                      <>
                        {order.status === OrderStatus.SENT && canSend && (
                          <button onClick={() => handleStatusChange(order, OrderStatus.DELIVERED)} className="bg-green-600 text-white py-2 rounded hover:bg-green-700 transition">
