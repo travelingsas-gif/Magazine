@@ -7,7 +7,6 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Questo permette di usare process.env.API_KEY nel codice frontend
       'process.env.API_KEY': JSON.stringify(env.API_KEY)
     }
   };
