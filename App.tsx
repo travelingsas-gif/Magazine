@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
@@ -403,7 +403,7 @@ const App: React.FC = () => {
           {currentUser.role === Role.SUPPLIER ? (
             <NavItem 
               icon={<Truck size={20} />} 
-              label="Ordini Ricevuti" 
+              label="Pannello Fornitore" 
               active={currentView === 'supplier-dashboard'} 
               onClick={() => { setCurrentView('supplier-dashboard'); setIsMenuOpen(false); }} 
             />
@@ -1158,7 +1158,7 @@ const ManageOrdersView: React.FC<{
                              {/* Reception/Admin Action: Send to Supplier */}
                              {canSend && (
                                <button onClick={() => handleStatusChange(order, OrderStatus.SENT)} className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2">
-                                  <Send size={16} /> Approva e Invia
+                                  <Send size={16} /> {order.type === 'LINEN' ? 'Invia in Lavanderia' : 'Approva e Invia'}
                                </button>
                              )}
                              
@@ -1206,50 +1206,98 @@ const SupplierDashboardView: React.FC<{
   products: Product[];
   users: User[];
 }> = ({ orders, structures, products, users }) => {
-  const myOrders = orders.filter(o => o.status !== OrderStatus.PENDING); // Supplier sees Sent/Delivered
+  const [activeTab, setActiveTab] = useState<'orders' | 'access'>('orders');
+
+  // Only show PRODUCT orders to supplier (Alfonso), exclude LINEN
+  const myOrders = orders.filter(o => o.status !== OrderStatus.PENDING && o.type === 'PRODUCT');
 
   return (
     <div className="max-w-6xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">Pannello Fornitore</h2>
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4">Data</th>
-              <th className="p-4">Struttura</th>
-              <th className="p-4">Articoli</th>
-              <th className="p-4">Stato</th>
-            </tr>
-          </thead>
-          <tbody>
-            {myOrders.map(order => {
-              const struct = structures.find(s => s.id === order.structureId);
-              return (
-                <tr key={order.id} className="border-b">
-                  <td className="p-4">{new Date(order.dateCreated).toLocaleDateString()}</td>
-                  <td className="p-4">{struct?.name}</td>
-                  <td className="p-4">
-                    <ul className="list-disc pl-4 text-sm">
-                      {order.items.map((item, idx) => {
-                         const prod = products.find(p => p.id === item.productId);
-                         return <li key={idx}>{prod?.name}: {item.quantity} {prod?.unit}</li>
-                      })}
-                    </ul>
-                  </td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {order.status}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-            {myOrders.length === 0 && (
-                <tr><td colSpan={4} className="p-8 text-center text-gray-500">Nessun ordine assegnato.</td></tr>
-            )}
-          </tbody>
-        </table>
+      
+      {/* TABS */}
+      <div className="flex gap-6 border-b mb-6">
+        <button 
+          onClick={() => setActiveTab('orders')}
+          className={`pb-3 px-1 font-medium transition ${activeTab === 'orders' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Ordini Ricevuti
+        </button>
+        <button 
+          onClick={() => setActiveTab('access')}
+          className={`pb-3 px-1 font-medium transition ${activeTab === 'access' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Codici Accesso Strutture
+        </button>
       </div>
+
+      {activeTab === 'orders' ? (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="p-4">Data</th>
+                <th className="p-4">Struttura</th>
+                <th className="p-4">Articoli</th>
+                <th className="p-4">Stato</th>
+              </tr>
+            </thead>
+            <tbody>
+              {myOrders.map(order => {
+                const struct = structures.find(s => s.id === order.structureId);
+                return (
+                  <tr key={order.id} className="border-b">
+                    <td className="p-4">{new Date(order.dateCreated).toLocaleDateString()}</td>
+                    <td className="p-4">{struct?.name}</td>
+                    <td className="p-4">
+                      <ul className="list-disc pl-4 text-sm">
+                        {order.items.map((item, idx) => {
+                           const prod = products.find(p => p.id === item.productId);
+                           return <li key={idx}>{prod?.name}: {item.quantity} {prod?.unit}</li>
+                        })}
+                      </ul>
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {order.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {myOrders.length === 0 && (
+                  <tr><td colSpan={4} className="p-8 text-center text-gray-500">Nessun ordine assegnato.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {structures.map(struct => (
+             <div key={struct.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="h-32 bg-gray-200 relative">
+                   <img src={struct.imageUrl || `https://picsum.photos/seed/${struct.id}/800/400`} alt={struct.name} className="w-full h-full object-cover"/>
+                   <div className="absolute inset-0 bg-black/30 flex items-end p-4">
+                      <h3 className="text-white font-bold text-lg shadow-black drop-shadow-md">{struct.name}</h3>
+                   </div>
+                </div>
+                <div className="p-5">
+                   <p className="text-gray-500 text-sm mb-4 flex items-center gap-2"><MapPin size={16}/> {struct.address}</p>
+                   <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex items-start gap-3">
+                      <div className="bg-white p-2 rounded-full text-emerald-600 shadow-sm">
+                        <Key size={18} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-emerald-600 font-bold uppercase mb-1">Codici d'ingresso</p>
+                        <p className="font-mono text-lg text-gray-800 select-all font-medium">{struct.accessCodes}</p>
+                      </div>
+                   </div>
+                </div>
+             </div>
+          ))}
+          {structures.length === 0 && <p className="text-gray-500">Nessuna struttura disponibile.</p>}
+        </div>
+      )}
     </div>
   );
 };
