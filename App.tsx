@@ -2,14 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Wrench, CheckCircle2
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
   OrderStatus, InventoryItem, ItemType, DamageReport 
 } from './types';
 import { analyzeInventoryImage } from './services/geminiService';
-import { SignaturePad } from './components/SignaturePad';
 import { supabase } from './supabaseClient';
 
 // --- Helpers to map snake_case (DB) to camelCase (App) ---
@@ -219,6 +218,18 @@ const App: React.FC = () => {
                        alert('Dati struttura aggiornati correttamente.');
                     }
                   }}
+                  onResolveDamage={async (id) => {
+                     const { error } = await supabase.from('damage_reports').update({ status: 'RESOLVED' }).eq('id', id);
+                     if (!error) {
+                       setDamageReports(prev => prev.map(d => d.id === id ? { ...d, status: 'RESOLVED' } : d));
+                     }
+                  }}
+                  onDeleteDamage={async (id) => {
+                     const { error } = await supabase.from('damage_reports').delete().eq('id', id);
+                     if (!error) {
+                       setDamageReports(prev => prev.filter(d => d.id !== id));
+                     }
+                  }}
                />;
       case 'inventory-new':
         return <NewInventoryView 
@@ -351,7 +362,7 @@ const App: React.FC = () => {
       default:
         // Default fallback
         if (currentUser.role === Role.SUPPLIER) return <SupplierDashboardView orders={orders} structures={structures} products={products} users={users} />;
-        return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={()=>{}} onUpdateImage={()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
+        return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={async ()=>{}} onUpdateImage={async ()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
     }
   };
 
@@ -585,9 +596,11 @@ const StructureDetailView: React.FC<{
   onRequestOrder: (type: ItemType) => void;
   onReportDamage: (type: ItemType) => void;
   onEditStructure: (s: Structure) => void;
+  onResolveDamage: (id: string) => void;
+  onDeleteDamage: (id: string) => void;
 }> = ({
   structureId, currentUser, inventories, orders, products, structures, users, damageReports,
-  onBack, onNewInventory, onRequestOrder, onReportDamage, onEditStructure
+  onBack, onNewInventory, onRequestOrder, onReportDamage, onEditStructure, onResolveDamage, onDeleteDamage
 }) => {
   const structure = structures.find(s => s.id === structureId);
   const [activeTab, setActiveTab] = useState<'info' | 'inventory' | 'orders' | 'damages'>('info');
@@ -745,19 +758,49 @@ const StructureDetailView: React.FC<{
 
         {activeTab === 'damages' && (
           <div className="space-y-4">
-             {structDamages.map(dmg => (
-                <div key={dmg.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                   <div className="flex justify-between items-center mb-2">
-                      <span className={`text-xs px-2 py-1 rounded font-bold ${dmg.status === 'RESOLVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {dmg.status}
-                      </span>
-                      <span className="text-sm text-gray-500">{new Date(dmg.date).toLocaleDateString()}</span>
-                   </div>
-                   <p className="text-gray-800">{dmg.notes}</p>
-                   <p className="text-xs text-gray-400 mt-1">Segnalato da: {users.find(u => u.id === dmg.reporterId)?.name}</p>
-                </div>
-             ))}
-             {structDamages.length === 0 && <p className="text-gray-400 text-center py-8">Nessuna segnalazione</p>}
+             {structDamages.map(dmg => {
+                const isResolved = dmg.status === 'RESOLVED';
+                return (
+                  <div key={dmg.id} className={`bg-white p-4 rounded-lg shadow-sm border-l-4 transition-all ${isResolved ? 'border-l-green-500 opacity-70' : 'border-l-red-500'}`}>
+                     <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          {isResolved ? <CheckCircle2 className="text-green-500" size={20} /> : <Wrench className="text-red-500" size={20} />}
+                          <span className={`text-sm font-bold ${isResolved ? 'text-green-700' : 'text-red-700'}`}>
+                            {isResolved ? 'Riparato / Risolto' : 'Guasto Aperto'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400">{new Date(dmg.date).toLocaleDateString()}</span>
+                     </div>
+                     <p className="text-gray-800 mb-3">{dmg.notes}</p>
+                     <div className="flex justify-between items-center">
+                        <p className="text-xs text-gray-400">Segnalato da: {users.find(u => u.id === dmg.reporterId)?.name}</p>
+                        
+                        {/* Action Buttons */}
+                        {currentUser.role !== Role.SUPPLIER && (
+                          <div className="flex gap-2">
+                             {!isResolved && (
+                                <button 
+                                  onClick={() => onResolveDamage(dmg.id)}
+                                  className="flex items-center gap-1 bg-green-50 text-green-700 px-3 py-1.5 rounded text-xs font-bold hover:bg-green-100 transition"
+                                >
+                                  <Check size={14} /> Segna Riparato
+                                </button>
+                             )}
+                             {isResolved && (
+                                <button 
+                                  onClick={() => onDeleteDamage(dmg.id)}
+                                  className="flex items-center gap-1 bg-gray-100 text-gray-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-50 hover:text-red-600 transition"
+                                >
+                                  <Trash2 size={14} /> Cestina
+                                </button>
+                             )}
+                          </div>
+                        )}
+                     </div>
+                  </div>
+                );
+             })}
+             {structDamages.length === 0 && <p className="text-gray-400 text-center py-8">Nessuna segnalazione guasti.</p>}
           </div>
         )}
       </div>
@@ -777,7 +820,8 @@ const NewInventoryView: React.FC<{
   // Store quantities in a map: productId -> quantity
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState('');
-  const [signature, setSignature] = useState<string | null>(null);
+  // Now signature is just a text string for the name
+  const [signature, setSignature] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleQuantityChange = (pid: string, val: number) => {
@@ -808,8 +852,8 @@ const NewInventoryView: React.FC<{
   };
 
   const handleSubmit = () => {
-    if (!signature) {
-      alert("La firma è obbligatoria.");
+    if (!signature.trim()) {
+      alert("La firma (nome operatore) è obbligatoria.");
       return;
     }
     const items: InventoryItem[] = Object.entries(quantities)
@@ -827,7 +871,7 @@ const NewInventoryView: React.FC<{
       operatorId: currentUser.id,
       date: new Date().toISOString(),
       items,
-      signatureUrl: signature, // For now storing base64 signature
+      signatureUrl: signature, // Stores the text name
       notes,
       type
     });
@@ -885,7 +929,14 @@ const NewInventoryView: React.FC<{
        />
 
        <div className="mb-6">
-         <SignaturePad onSave={setSignature} onClear={() => setSignature(null)} />
+         <label className="block text-sm font-bold text-gray-700 mb-2">Firma Operatore (Scrivi il tuo nome)</label>
+         <input
+            type="text"
+            className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition"
+            placeholder="Es. Mario Rossi"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+         />
        </div>
 
        <div className="flex gap-3 pt-4 border-t">
@@ -1159,7 +1210,7 @@ const ManageOrdersView: React.FC<{
                              {canSend && (
                                <button onClick={() => handleStatusChange(order, OrderStatus.SENT)} className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2">
                                   <Send size={16} /> {order.type === 'LINEN' ? 'Invia in Lavanderia' : 'Approva e Invia'}
-                               </button>
+                                </button>
                              )}
                              
                              {/* Reception/Admin Action: Modify before sending */}
@@ -1302,395 +1353,254 @@ const SupplierDashboardView: React.FC<{
   );
 };
 
-const UserManagementView: React.FC<{ users: User[], setUsers: any, onAddUser: (u: User) => void, onDeleteUser: (id: string) => void }> = ({ users, onAddUser, onDeleteUser }) => {
-  const [newUser, setNewUser] = useState<Partial<User>>({ role: Role.OPERATOR });
-  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
-
-  const handleAddUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.password) {
-      alert('Compila tutti i campi');
-      return;
-    }
-    const user: User = {
-      id: `u-${Date.now()}`,
-      name: newUser.name!,
-      email: newUser.email!,
-      role: newUser.role as Role,
-      password: newUser.password
-    };
-    onAddUser(user);
-    setNewUser({ role: Role.OPERATOR, name: '', email: '', password: '' });
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Gestione Utenti (DB)</h2>
-      </div>
-      
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8">
-        <h3 className="font-bold text-gray-700 mb-4">Aggiungi Utente</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <input 
-            placeholder="Nome" 
-            className="border p-2 rounded" 
-            value={newUser.name || ''} 
-            onChange={e => setNewUser({...newUser, name: e.target.value})} 
-          />
-          <input 
-            placeholder="Email" 
-            className="border p-2 rounded" 
-            value={newUser.email || ''} 
-            onChange={e => setNewUser({...newUser, email: e.target.value})} 
-          />
-          <input 
-            placeholder="Password" 
-            type="password"
-            className="border p-2 rounded" 
-            value={newUser.password || ''} 
-            onChange={e => setNewUser({...newUser, password: e.target.value})} 
-          />
-          <select 
-            className="border p-2 rounded"
-            value={newUser.role}
-            onChange={e => setNewUser({...newUser, role: e.target.value as Role})}
-          >
-            {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-        <button onClick={handleAddUser} className="bg-emerald-600 text-white px-4 py-2 rounded">Crea Utente</button>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4">Nome</th>
-              <th className="p-4">Email</th>
-              <th className="p-4">Ruolo</th>
-              <th className="p-4">Azioni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(user => (
-              <tr key={user.id} className="border-b">
-                <td className="p-4 font-medium">{user.name}</td>
-                <td className="p-4 text-gray-500">{user.email}</td>
-                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs">{user.role}</span></td>
-                <td className="p-4">
-                  <button onClick={() => setDeleteConfirmationId(user.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <ConfirmationModal
-        isOpen={!!deleteConfirmationId}
-        title="Elimina Utente"
-        message="Sei sicuro di voler eliminare questo utente dal database?"
-        onCancel={() => setDeleteConfirmationId(null)}
-        onConfirm={() => {
-           if (deleteConfirmationId) onDeleteUser(deleteConfirmationId);
-           setDeleteConfirmationId(null);
-        }}
-      />
-    </div>
-  );
-};
-
-const ProductManagementView: React.FC<{ products: Product[], setProducts: any, onAddProduct: (p: Product) => void, onDeleteProduct: (id: string) => void }> = ({ products, onAddProduct, onDeleteProduct }) => {
-  const [newProd, setNewProd] = useState<Partial<Product>>({ category: 'CLEANING', type: 'PRODUCT', unit: 'Pz' });
-  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    if (!newProd.name) return;
-    const prod: Product = {
-      id: `p-${Date.now()}`,
-      name: newProd.name,
-      category: newProd.category as any,
-      type: newProd.type as ItemType,
-      unit: newProd.unit || 'Pz'
-    };
-    onAddProduct(prod);
-    setNewProd({ category: 'CLEANING', type: 'PRODUCT', unit: 'Pz', name: '' });
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Catalogo Prodotti (DB)</h2>
-      
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8">
-        <h3 className="font-bold text-gray-700 mb-4">Nuovo Prodotto</h3>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-4">
-          <input 
-            placeholder="Nome Prodotto" 
-            className="col-span-2 border p-2 rounded" 
-            value={newProd.name || ''} 
-            onChange={e => setNewProd({...newProd, name: e.target.value})} 
-          />
-          <select 
-            className="border p-2 rounded"
-            value={newProd.category}
-            onChange={e => setNewProd({...newProd, category: e.target.value as any})}
-          >
-            <option value="CLEANING">Pulizia</option>
-            <option value="FOOD">Cibo/Bevande</option>
-            <option value="AMENITIES">Amenities</option>
-            <option value="LINEN_BED">Lenzuola</option>
-            <option value="LINEN_BATH">Bagno</option>
-            <option value="OTHER">Altro</option>
-          </select>
-          <select 
-            className="border p-2 rounded"
-            value={newProd.type}
-            onChange={e => setNewProd({...newProd, type: e.target.value as ItemType})}
-          >
-            <option value="PRODUCT">Consumabile</option>
-            <option value="LINEN">Biancheria</option>
-          </select>
-           <input 
-            placeholder="Unità (Pz, Lt...)" 
-            className="border p-2 rounded" 
-            value={newProd.unit || ''} 
-            onChange={e => setNewProd({...newProd, unit: e.target.value})} 
-          />
-        </div>
-        <button onClick={handleAdd} className="bg-emerald-600 text-white px-4 py-2 rounded">Aggiungi</button>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-3">Nome</th>
-              <th className="p-3">Categoria</th>
-              <th className="p-3">Tipo</th>
-              <th className="p-3">Unità</th>
-              <th className="p-3">Azioni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map(p => (
-              <tr key={p.id} className="border-b hover:bg-gray-50">
-                <td className="p-3 font-medium">{p.name}</td>
-                <td className="p-3 text-gray-500">{p.category}</td>
-                <td className="p-3"><span className={`px-2 py-0.5 rounded text-xs ${p.type === 'LINEN' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>{p.type}</span></td>
-                <td className="p-3">{p.unit}</td>
-                <td className="p-3">
-                  <button onClick={() => setDeleteConfirmationId(p.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      
-      <ConfirmationModal
-        isOpen={!!deleteConfirmationId}
-        title="Elimina Prodotto"
-        message="Sei sicuro di voler eliminare questo prodotto?"
-        onCancel={() => setDeleteConfirmationId(null)}
-        onConfirm={() => {
-           if (deleteConfirmationId) onDeleteProduct(deleteConfirmationId);
-           setDeleteConfirmationId(null);
-        }}
-      />
-    </div>
-  );
-};
-
-const DashboardView: React.FC<{ 
-  structures: Structure[], 
-  onSelectStructure: (id: string) => void, 
-  onAddStructure: (s: Structure) => void,
-  onUpdateImage: (id: string, url: string) => void,
-  role: Role,
-  pendingOrdersCount: number,
-  onNavigateToOrders: () => void
+const DashboardView: React.FC<{
+  structures: Structure[];
+  onSelectStructure: (id: string) => void;
+  onAddStructure: (s: any) => Promise<void>;
+  onUpdateImage: (id: string, url: string) => Promise<void>;
+  role: Role;
+  pendingOrdersCount: number;
+  onNavigateToOrders: () => void;
 }> = ({ structures, onSelectStructure, onAddStructure, onUpdateImage, role, pendingOrdersCount, onNavigateToOrders }) => {
-  
   const [isAdding, setIsAdding] = useState(false);
   const [newStruct, setNewStruct] = useState({ name: '', address: '', accessCodes: '' });
 
-  // State for Image Editing
-  const [editingImageState, setEditingImageState] = useState<{ id: string, currentUrl: string } | null>(null);
-
-  const handleSaveNew = () => {
-    if (!newStruct.name || !newStruct.address) {
-      alert("Nome e Indirizzo sono obbligatori");
-      return;
-    }
-    const s: Structure = {
+  const handleAdd = async () => {
+    if(!newStruct.name || !newStruct.address) return;
+    await onAddStructure({
       id: `s-${Date.now()}`,
-      name: newStruct.name,
-      address: newStruct.address,
-      accessCodes: newStruct.accessCodes || 'Da inserire'
-    };
-    onAddStructure(s);
-    setNewStruct({ name: '', address: '', accessCodes: '' });
+      ...newStruct,
+      imageUrl: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=80' // default
+    });
     setIsAdding(false);
+    setNewStruct({ name: '', address: '', accessCodes: '' });
   };
 
-  const handleUpdateImage = () => {
-    if (editingImageState) {
-      onUpdateImage(editingImageState.id, editingImageState.currentUrl);
-      setEditingImageState(null);
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: string) => {
+    const file = e.target.files?.[0];
+    if (file) {
+       const reader = new FileReader();
+       reader.onloadend = () => {
+          onUpdateImage(id, reader.result as string);
+       };
+       reader.readAsDataURL(file);
     }
   };
 
   return (
-    <div>
-      {(role === Role.ADMIN || role === Role.RECEPTION) && pendingOrdersCount > 0 && (
-         <div 
-           onClick={onNavigateToOrders}
-           className="mb-6 bg-orange-50 border border-orange-200 p-4 rounded-xl flex items-center justify-between cursor-pointer hover:bg-orange-100 transition shadow-sm"
-         >
-            <div className="flex items-center gap-3">
-               <div className="bg-orange-100 p-2 rounded-full text-orange-600">
-                  <Bell size={24} />
-               </div>
-               <div>
-                  <h3 className="font-bold text-orange-900">Hai {pendingOrdersCount} nuovi ordini da confermare</h3>
-                  <p className="text-sm text-orange-700">Clicca qui per gestire gli ordini in sospeso.</p>
-               </div>
-            </div>
-            <div className="bg-orange-600 text-white px-3 py-1 rounded-lg text-sm font-bold">
-               Vedi
-            </div>
-         </div>
-      )}
-
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Zone & Strutture Gestite</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {structures.map(structure => (
-          <div 
-            key={structure.id} 
-            onClick={() => onSelectStructure(structure.id)}
-            className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-100 overflow-hidden"
-          >
-            <div className="h-32 bg-slate-200 relative group">
-                <img 
-                  src={structure.imageUrl || `https://picsum.photos/seed/${structure.id}/800/400`} 
-                  alt={structure.name} 
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end p-4">
-                   <h3 className="text-white font-bold text-lg">{structure.name}</h3>
-                </div>
-                
-                {/* Pencil Edit Icon for Image - Visible on Hover or if user knows where it is */}
-                {(role === Role.ADMIN || role === Role.RECEPTION) && (
-                   <button 
-                      onClick={(e) => {
-                         e.stopPropagation();
-                         setEditingImageState({ id: structure.id, currentUrl: structure.imageUrl || '' });
-                      }}
-                      className="absolute top-2 right-2 bg-white/90 p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500 hover:text-white"
-                   >
-                      <Edit size={16} />
-                   </button>
-                )}
-            </div>
-            <div className="p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                   <p className="text-sm text-gray-500 flex items-center gap-1">
-                      <Users size={14} /> {structure.address}
-                   </p>
-                   {role !== Role.OPERATOR && (
-                    <p className="text-xs text-gray-400 mt-2 font-mono bg-gray-100 p-1 rounded inline-block">
-                        Cod: {structure.accessCodes}
-                    </p>
-                   )}
-                </div>
-                {/* Visual indicator (edit general details, not image) */}
-                <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400">
-                    <Edit size={16} />
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-        {/* Add Structure Card */}
+    <div className="max-w-6xl mx-auto">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Zone e Strutture</h1>
+          <p className="text-gray-500 mt-1">Gestisci le proprietà e monitora lo stato.</p>
+        </div>
         {role === Role.ADMIN && (
-          isAdding ? (
-            <div className="bg-white rounded-xl shadow-lg border border-emerald-500 p-6 flex flex-col gap-3">
-               <h3 className="font-bold text-emerald-800">Nuova Struttura</h3>
-               <input 
-                 placeholder="Nome Struttura"
-                 className="border p-2 rounded"
-                 value={newStruct.name}
-                 onChange={e => setNewStruct({...newStruct, name: e.target.value})}
-               />
-               <input 
-                 placeholder="Indirizzo"
-                 className="border p-2 rounded"
-                 value={newStruct.address}
-                 onChange={e => setNewStruct({...newStruct, address: e.target.value})}
-               />
-               <input 
-                 placeholder="Codici Accesso"
-                 className="border p-2 rounded"
-                 value={newStruct.accessCodes}
-                 onChange={e => setNewStruct({...newStruct, accessCodes: e.target.value})}
-               />
-               <div className="flex gap-2 mt-2">
-                 <button onClick={handleSaveNew} className="bg-emerald-600 text-white px-4 py-2 rounded flex-1">Salva</button>
-                 <button onClick={() => setIsAdding(false)} className="bg-gray-200 text-gray-600 px-4 py-2 rounded">Annulla</button>
-               </div>
-            </div>
-          ) : (
-            <div 
-              onClick={() => setIsAdding(true)}
-              className="bg-gray-50 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 hover:bg-emerald-50 transition p-8 h-[240px]"
-            >
-               <div className="bg-white p-4 rounded-full shadow-sm mb-4">
-                  <Plus size={24} className="text-emerald-600" />
-               </div>
-               <p className="font-bold text-gray-600">Aggiungi Struttura</p>
-            </div>
-          )
+          <button onClick={() => setIsAdding(true)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition shadow-sm">
+            <Plus size={20} /> Aggiungi Struttura
+          </button>
         )}
       </div>
 
-      {/* Image Edit Modal */}
-      {editingImageState && (
-         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
-               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                 <ImageIcon className="text-emerald-600" /> Modifica Foto Struttura
-               </h3>
-               <p className="text-sm text-gray-500 mb-4">Inserisci l'URL dell'immagine (es. Unsplash o link pubblico).</p>
-               
-               <input 
-                 type="text" 
-                 className="w-full border p-3 rounded-lg mb-4 text-sm"
-                 placeholder="https://..."
-                 value={editingImageState.currentUrl}
-                 onChange={(e) => setEditingImageState({ ...editingImageState, currentUrl: e.target.value })}
-               />
-               
-               <div className="flex gap-2 justify-end">
-                  <button 
-                    onClick={() => setEditingImageState(null)} 
-                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
-                  >
-                    Annulla
-                  </button>
-                  <button 
-                    onClick={handleUpdateImage} 
-                    className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
-                  >
-                    Salva Immagine
-                  </button>
+      {pendingOrdersCount > 0 && (
+         <div onClick={onNavigateToOrders} className="cursor-pointer bg-orange-50 border border-orange-200 p-4 rounded-xl mb-8 flex items-center justify-between hover:bg-orange-100 transition shadow-sm">
+            <div className="flex items-center gap-3">
+               <div className="bg-orange-100 p-2 rounded-full text-orange-600">
+                  <ShoppingCart size={24} />
                </div>
+               <div>
+                  <h3 className="font-bold text-orange-800">Ci sono ordini in attesa!</h3>
+                  <p className="text-orange-700 text-sm">Hai {pendingOrdersCount} richieste da approvare.</p>
+               </div>
+            </div>
+            <div className="bg-white px-4 py-2 rounded-lg text-orange-600 font-bold text-sm shadow-sm">Vedi Ordini</div>
+         </div>
+      )}
+
+      {isAdding && (
+         <div className="bg-white p-6 rounded-xl shadow-lg mb-8 border border-emerald-100 animate-fade-in-down">
+            <h3 className="font-bold text-lg mb-4">Nuova Struttura</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+               <input placeholder="Nome struttura" className="border p-2 rounded" value={newStruct.name} onChange={e => setNewStruct({...newStruct, name: e.target.value})} />
+               <input placeholder="Indirizzo" className="border p-2 rounded" value={newStruct.address} onChange={e => setNewStruct({...newStruct, address: e.target.value})} />
+               <input placeholder="Codici Accesso" className="border p-2 rounded" value={newStruct.accessCodes} onChange={e => setNewStruct({...newStruct, accessCodes: e.target.value})} />
+            </div>
+            <div className="flex justify-end gap-2">
+               <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">Annulla</button>
+               <button onClick={handleAdd} className="px-4 py-2 bg-emerald-600 text-white rounded font-bold">Salva</button>
             </div>
          </div>
       )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {structures.map(structure => (
+          <div key={structure.id} className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer" onClick={() => onSelectStructure(structure.id)}>
+             <div className="h-48 bg-gray-200 relative overflow-hidden">
+                <img 
+                  src={structure.imageUrl || `https://picsum.photos/seed/${structure.id}/800/600`} 
+                  alt={structure.name} 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
+                   <h3 className="text-white font-bold text-xl drop-shadow-md">{structure.name}</h3>
+                </div>
+                {role === Role.ADMIN && (
+                   <label className="absolute top-2 right-2 bg-white/90 p-2 rounded-full cursor-pointer hover:bg-white transition" onClick={e => e.stopPropagation()}>
+                      <ImageIcon size={16} className="text-gray-600" />
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, structure.id)} />
+                   </label>
+                )}
+             </div>
+             <div className="p-6">
+                <div className="flex items-start gap-3 mb-4 text-gray-500">
+                   <MapPin size={18} className="mt-1 flex-shrink-0 text-emerald-500" />
+                   <p className="text-sm leading-relaxed">{structure.address}</p>
+                </div>
+                <div className="flex justify-between items-center border-t border-gray-100 pt-4 mt-2">
+                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Gestisci</span>
+                   <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                      <Users size={16} />
+                   </div>
+                </div>
+             </div>
+          </div>
+        ))}
+        {structures.length === 0 && (
+           <div className="col-span-full text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300">
+              <Building2 size={48} className="mx-auto mb-4 opacity-50" />
+              <p>Nessuna struttura presente. Aggiungine una per iniziare.</p>
+           </div>
+        )}
+      </div>
     </div>
   );
+};
+
+const UserManagementView: React.FC<{
+  users: User[];
+  setUsers: (u: User[]) => void;
+  onAddUser: (u: any) => Promise<void>;
+  onDeleteUser: (id: string) => Promise<void>;
+}> = ({ users, onAddUser, onDeleteUser }) => {
+   const [newUser, setNewUser] = useState({ name: '', email: '', role: Role.OPERATOR, password: '' });
+
+   const handleAdd = async () => {
+      if(!newUser.name || !newUser.email || !newUser.password) return;
+      await onAddUser({ id: `u-${Date.now()}`, ...newUser });
+      setNewUser({ name: '', email: '', role: Role.OPERATOR, password: '' });
+   };
+
+   return (
+      <div className="max-w-4xl mx-auto">
+         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Users /> Gestione Utenti</h2>
+
+         <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-gray-100">
+            <h3 className="font-bold mb-4">Aggiungi Utente</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+               <input placeholder="Nome" className="border p-2 rounded" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+               <input placeholder="Email" className="border p-2 rounded" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
+               <input placeholder="Password" type="password" className="border p-2 rounded" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+               <select className="border p-2 rounded" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as Role})}>
+                  {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
+               </select>
+            </div>
+            <button onClick={handleAdd} className="bg-emerald-600 text-white px-4 py-2 rounded font-bold hover:bg-emerald-700 w-full md:w-auto">Aggiungi</button>
+         </div>
+
+         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left">
+               <thead className="bg-gray-50 border-b">
+                  <tr>
+                     <th className="p-4">Nome</th>
+                     <th className="p-4">Email</th>
+                     <th className="p-4">Ruolo</th>
+                     <th className="p-4 w-20">Azioni</th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {users.map(u => (
+                     <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{u.name}</td>
+                        <td className="p-4 text-gray-500">{u.email}</td>
+                        <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{u.role}</span></td>
+                        <td className="p-4 text-center">
+                           <button onClick={() => onDeleteUser(u.id)} className="text-red-500 hover:bg-red-50 p-2 rounded"><Trash2 size={18} /></button>
+                        </td>
+                     </tr>
+                  ))}
+               </tbody>
+            </table>
+         </div>
+      </div>
+   );
+};
+
+const ProductManagementView: React.FC<{
+  products: Product[];
+  setProducts: (p: Product[]) => void;
+  onAddProduct: (p: any) => Promise<void>;
+  onDeleteProduct: (id: string) => Promise<void>;
+}> = ({ products, onAddProduct, onDeleteProduct }) => {
+   const [newProd, setNewProd] = useState<Partial<Product>>({ name: '', category: 'CLEANING', unit: 'Pz', type: 'PRODUCT' });
+
+   const handleAdd = async () => {
+      if(!newProd.name) return;
+      await onAddProduct({ id: `p-${Date.now()}`, ...newProd });
+      setNewProd({ name: '', category: 'CLEANING', unit: 'Pz', type: 'PRODUCT' });
+   };
+
+   return (
+      <div className="max-w-4xl mx-auto">
+         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Box /> Catalogo Prodotti</h2>
+
+         <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-gray-100">
+            <h3 className="font-bold mb-4">Nuovo Prodotto</h3>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+               <input placeholder="Nome Prodotto" className="border p-2 rounded col-span-2" value={newProd.name} onChange={e => setNewProd({...newProd, name: e.target.value})} />
+               <select className="border p-2 rounded" value={newProd.category} onChange={e => setNewProd({...newProd, category: e.target.value as any})}>
+                  <option value="CLEANING">Pulizia</option>
+                  <option value="FOOD">Cibo/Bevande</option>
+                  <option value="AMENITIES">Amenities</option>
+                  <option value="LINEN_BED">Biancheria Letto</option>
+                  <option value="LINEN_BATH">Biancheria Bagno</option>
+                  <option value="OTHER">Altro</option>
+               </select>
+               <select className="border p-2 rounded" value={newProd.type} onChange={e => setNewProd({...newProd, type: e.target.value as any})}>
+                  <option value="PRODUCT">Consumabile</option>
+                  <option value="LINEN">Biancheria</option>
+               </select>
+               <input placeholder="Unità (es. Pz, Lt)" className="border p-2 rounded" value={newProd.unit} onChange={e => setNewProd({...newProd, unit: e.target.value})} />
+            </div>
+            <button onClick={handleAdd} className="bg-emerald-600 text-white px-4 py-2 rounded font-bold hover:bg-emerald-700 w-full md:w-auto">Aggiungi a Catalogo</button>
+         </div>
+
+         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left">
+               <thead className="bg-gray-50 border-b">
+                  <tr>
+                     <th className="p-4">Prodotto</th>
+                     <th className="p-4">Categoria</th>
+                     <th className="p-4">Tipo</th>
+                     <th className="p-4">Unità</th>
+                     <th className="p-4 w-20">Azioni</th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {products.map(p => (
+                     <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{p.name}</td>
+                        <td className="p-4 text-sm text-gray-500">{p.category}</td>
+                        <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${p.type === 'LINEN' ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'}`}>{p.type}</span></td>
+                        <td className="p-4 text-sm text-gray-500">{p.unit}</td>
+                        <td className="p-4 text-center">
+                           <button onClick={() => onDeleteProduct(p.id)} className="text-red-500 hover:bg-red-50 p-2 rounded"><Trash2 size={18} /></button>
+                        </td>
+                     </tr>
+                  ))}
+               </tbody>
+            </table>
+         </div>
+      </div>
+   );
 };
 
 export default App;
