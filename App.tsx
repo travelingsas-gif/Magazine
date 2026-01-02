@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Filter, X as XIcon
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
@@ -594,10 +594,6 @@ const StructureDetailView: React.FC<{
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Structure | null>(null);
 
-  // Filtri Data Ordini
-  const [filterDateFrom, setFilterDateFrom] = useState('');
-  const [filterDateTo, setFilterDateTo] = useState('');
-
   useEffect(() => {
     if (structure) setEditForm(structure);
   }, [structure]);
@@ -605,29 +601,7 @@ const StructureDetailView: React.FC<{
   if (!structure) return <div>Struttura non trovata</div>;
 
   const structInventories = inventories.filter(i => i.structureId === structure.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  
-  // Logic per filtrare gli ordini
-  const structOrders = orders
-    .filter(o => o.structureId === structure.id)
-    .filter(o => {
-      // Filtro DA data
-      if (filterDateFrom) {
-         const fromDate = new Date(filterDateFrom);
-         fromDate.setHours(0,0,0,0);
-         const orderDate = new Date(o.dateCreated);
-         if (orderDate < fromDate) return false;
-      }
-      // Filtro A data
-      if (filterDateTo) {
-         const toDate = new Date(filterDateTo);
-         toDate.setHours(23,59,59,999);
-         const orderDate = new Date(o.dateCreated);
-         if (orderDate > toDate) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
-
+  const structOrders = orders.filter(o => o.structureId === structure.id).sort((a, b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
   const structDamages = damageReports.filter(d => d.structureId === structure.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handleSaveEdit = () => {
@@ -753,39 +727,6 @@ const StructureDetailView: React.FC<{
 
         {activeTab === 'orders' && (
            <div className="space-y-4">
-             {/* Filtri Data */}
-             <div className="bg-gray-50 p-4 rounded-lg flex flex-wrap gap-4 items-end border border-gray-100 mb-4">
-                <div className="flex items-center gap-2 text-gray-500 font-medium mb-1 w-full md:w-auto">
-                   <Filter size={16} /> Filtra per data
-                </div>
-                <div>
-                   <label className="block text-xs font-medium text-gray-500 mb-1">Da:</label>
-                   <input 
-                      type="date" 
-                      value={filterDateFrom} 
-                      onChange={(e) => setFilterDateFrom(e.target.value)} 
-                      className="border rounded p-2 text-sm bg-white"
-                   />
-                </div>
-                <div>
-                   <label className="block text-xs font-medium text-gray-500 mb-1">A:</label>
-                   <input 
-                      type="date" 
-                      value={filterDateTo} 
-                      onChange={(e) => setFilterDateTo(e.target.value)} 
-                      className="border rounded p-2 text-sm bg-white"
-                   />
-                </div>
-                {(filterDateFrom || filterDateTo) && (
-                  <button 
-                    onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }}
-                    className="text-sm text-red-600 hover:text-red-800 underline pb-2 flex items-center gap-1"
-                  >
-                    <XIcon size={14} /> Resetta
-                  </button>
-                )}
-             </div>
-
              {structOrders.map(ord => (
                 <div key={ord.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
                    <div className="flex justify-between items-center mb-2">
@@ -798,7 +739,7 @@ const StructureDetailView: React.FC<{
                    <p className="text-xs text-gray-400 mt-1">{ord.items.length} articoli</p>
                 </div>
              ))}
-             {structOrders.length === 0 && <p className="text-gray-400 text-center py-8">Nessun ordine trovato nel periodo selezionato</p>}
+             {structOrders.length === 0 && <p className="text-gray-400 text-center py-8">Nessun ordine recente</p>}
            </div>
         )}
 
