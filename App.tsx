@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
@@ -179,6 +179,12 @@ const App: React.FC = () => {
                     }).select().single();
                     if(!error && data) setStructures([...structures, mapStructure(data)]);
                   }}
+                  onUpdateImage={async (id, url) => {
+                    const { error } = await supabase.from('structures').update({ image_url: url }).eq('id', id);
+                    if (!error) {
+                      setStructures(prev => prev.map(s => s.id === id ? { ...s, imageUrl: url } : s));
+                    }
+                  }}
                   role={currentUser.role}
                   pendingOrdersCount={getUnreadOrdersCount()}
                   onNavigateToOrders={() => setCurrentView('orders-products')}
@@ -343,7 +349,7 @@ const App: React.FC = () => {
       default:
         // Default fallback
         if (currentUser.role === Role.SUPPLIER) return <SupplierDashboardView orders={orders} structures={structures} products={products} users={users} />;
-        return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
+        return <DashboardView structures={structures} onSelectStructure={() => {}} onAddStructure={()=>{}} onUpdateImage={()=>{}} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
     }
   };
 
@@ -1325,13 +1331,17 @@ const DashboardView: React.FC<{
   structures: Structure[], 
   onSelectStructure: (id: string) => void, 
   onAddStructure: (s: Structure) => void,
+  onUpdateImage: (id: string, url: string) => void,
   role: Role,
   pendingOrdersCount: number,
   onNavigateToOrders: () => void
-}> = ({ structures, onSelectStructure, onAddStructure, role, pendingOrdersCount, onNavigateToOrders }) => {
+}> = ({ structures, onSelectStructure, onAddStructure, onUpdateImage, role, pendingOrdersCount, onNavigateToOrders }) => {
   
   const [isAdding, setIsAdding] = useState(false);
   const [newStruct, setNewStruct] = useState({ name: '', address: '', accessCodes: '' });
+
+  // State for Image Editing
+  const [editingImageState, setEditingImageState] = useState<{ id: string, currentUrl: string } | null>(null);
 
   const handleSaveNew = () => {
     if (!newStruct.name || !newStruct.address) {
@@ -1347,6 +1357,13 @@ const DashboardView: React.FC<{
     onAddStructure(s);
     setNewStruct({ name: '', address: '', accessCodes: '' });
     setIsAdding(false);
+  };
+
+  const handleUpdateImage = () => {
+    if (editingImageState) {
+      onUpdateImage(editingImageState.id, editingImageState.currentUrl);
+      setEditingImageState(null);
+    }
   };
 
   return (
@@ -1379,15 +1396,28 @@ const DashboardView: React.FC<{
             onClick={() => onSelectStructure(structure.id)}
             className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-100 overflow-hidden"
           >
-            <div className="h-32 bg-slate-200 relative">
+            <div className="h-32 bg-slate-200 relative group">
                 <img 
-                  src={`https://picsum.photos/seed/${structure.id}/800/400`} 
+                  src={structure.imageUrl || `https://picsum.photos/seed/${structure.id}/800/400`} 
                   alt={structure.name} 
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end p-4">
                    <h3 className="text-white font-bold text-lg">{structure.name}</h3>
                 </div>
+                
+                {/* Pencil Edit Icon for Image - Visible on Hover or if user knows where it is */}
+                {(role === Role.ADMIN || role === Role.RECEPTION) && (
+                   <button 
+                      onClick={(e) => {
+                         e.stopPropagation();
+                         setEditingImageState({ id: structure.id, currentUrl: structure.imageUrl || '' });
+                      }}
+                      className="absolute top-2 right-2 bg-white/90 p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500 hover:text-white"
+                   >
+                      <Edit size={16} />
+                   </button>
+                )}
             </div>
             <div className="p-4">
               <div className="flex items-start justify-between">
@@ -1401,6 +1431,7 @@ const DashboardView: React.FC<{
                     </p>
                    )}
                 </div>
+                {/* Visual indicator (edit general details, not image) */}
                 <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400">
                     <Edit size={16} />
                 </div>
@@ -1449,6 +1480,41 @@ const DashboardView: React.FC<{
           )
         )}
       </div>
+
+      {/* Image Edit Modal */}
+      {editingImageState && (
+         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                 <ImageIcon className="text-emerald-600" /> Modifica Foto Struttura
+               </h3>
+               <p className="text-sm text-gray-500 mb-4">Inserisci l'URL dell'immagine (es. Unsplash o link pubblico).</p>
+               
+               <input 
+                 type="text" 
+                 className="w-full border p-3 rounded-lg mb-4 text-sm"
+                 placeholder="https://..."
+                 value={editingImageState.currentUrl}
+                 onChange={(e) => setEditingImageState({ ...editingImageState, currentUrl: e.target.value })}
+               />
+               
+               <div className="flex gap-2 justify-end">
+                  <button 
+                    onClick={() => setEditingImageState(null)} 
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+                  >
+                    Annulla
+                  </button>
+                  <button 
+                    onClick={handleUpdateImage} 
+                    className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                  >
+                    Salva Immagine
+                  </button>
+               </div>
+            </div>
+         </div>
+      )}
     </div>
   );
 };
