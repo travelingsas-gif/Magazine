@@ -2,11 +2,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
   Plus, Edit, Trash2, Camera, Check, Send, AlertCircle, FileText, Search,
-  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Wrench, CheckCircle2
+  Clock, Bell, Truck, MapPin, Save, XCircle, Mail, Shirt, AlertTriangle, UserCheck, Loader, RefreshCw, Database, Image as ImageIcon, Minus, Key, Wrench, CheckCircle2, Download, ClipboardList, Calendar
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
-  OrderStatus, InventoryItem, ItemType, DamageReport 
+  OrderStatus, InventoryItem, ItemType, DamageReport, LinenIssueReport, LinenIssueItem 
 } from './types';
 import { analyzeInventoryImage } from './services/geminiService';
 import { supabase } from './supabaseClient';
@@ -37,6 +37,10 @@ const mapDamageReport = (d: any): DamageReport => ({
   id: d.id, structureId: d.structure_id, reporterId: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status
 });
 
+const mapLinenReport = (l: any): LinenIssueReport => ({
+  id: l.id, structureId: l.structure_id, reporterId: l.reporter_id, date: l.date, items: l.items, notes: l.notes
+});
+
 // --- Main App ---
 
 const App: React.FC = () => {
@@ -52,6 +56,7 @@ const App: React.FC = () => {
   const [inventories, setInventories] = useState<InventoryReport[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [damageReports, setDamageReports] = useState<DamageReport[]>([]);
+  const [linenReports, setLinenReports] = useState<LinenIssueReport[]>([]);
 
   // Navigation state
   const [currentView, setCurrentView] = useState<string>('login');
@@ -66,13 +71,14 @@ const App: React.FC = () => {
     setLoading(true);
     try {
        // Parallel fetching
-       const [resUsers, resProds, resStructs, resInv, resOrd, resDmg] = await Promise.all([
+       const [resUsers, resProds, resStructs, resInv, resOrd, resDmg, resLinen] = await Promise.all([
          supabase.from('users').select('*'),
          supabase.from('products').select('*'),
          supabase.from('structures').select('*'),
          supabase.from('inventories').select('*'),
          supabase.from('orders').select('*'),
-         supabase.from('damage_reports').select('*')
+         supabase.from('damage_reports').select('*'),
+         supabase.from('linen_reports').select('*') // Assuming table exists
        ]);
 
        if (resUsers.error) throw resUsers.error;
@@ -92,6 +98,10 @@ const App: React.FC = () => {
 
        if (resDmg.error) throw resDmg.error;
        setDamageReports(resDmg.data.map(mapDamageReport));
+
+       if (!resLinen.error) {
+         setLinenReports(resLinen.data.map(mapLinenReport));
+       }
 
     } catch (err: any) {
       console.error("Error fetching data:", err);
@@ -209,6 +219,7 @@ const App: React.FC = () => {
                   onNewInventory={(type) => { setActiveItemType(type); setCurrentView('inventory-new'); }}
                   onRequestOrder={(type) => { setActiveItemType(type); setCurrentView('order-new'); }}
                   onReportDamage={(type) => { setActiveItemType(type); setCurrentView('damage-report-new'); }}
+                  onLinenIssue={() => setCurrentView('linen-issue-new')}
                   onEditStructure={async (s) => {
                     const { error } = await supabase.from('structures').update({
                       name: s.name, address: s.address, access_codes: s.accessCodes
@@ -287,6 +298,43 @@ const App: React.FC = () => {
                 }}
                 onCancel={() => setCurrentView('structure-detail')}
               />
+      case 'linen-issue-new':
+        return <NewLinenIssueView
+                structureId={selectedStructureId!}
+                currentUser={currentUser}
+                products={products}
+                onSave={async (rep) => {
+                   const { data, error } = await supabase.from('linen_reports').insert({
+                      id: rep.id, structure_id: rep.structureId, reporter_id: rep.reporterId,
+                      date: rep.date, items: rep.items, notes: rep.notes
+                   }).select().single();
+                   if(!error && data) {
+                     setLinenReports([...linenReports, mapLinenReport(data)]);
+                     setCurrentView('structure-detail');
+                   }
+                }}
+                onCancel={() => setCurrentView('structure-detail')}
+              />;
+      case 'linen-issue-log':
+         return <LinenIssuesLogView 
+                  reports={linenReports}
+                  structures={structures}
+                  products={products}
+                  users={users}
+                  onUpdateReport={async (updated) => {
+                     // Simplified edit: just re-save
+                     const { error } = await supabase.from('linen_reports').update({
+                       items: updated.items, notes: updated.notes
+                     }).eq('id', updated.id);
+                     if (!error) {
+                        setLinenReports(prev => prev.map(r => r.id === updated.id ? updated : r));
+                     }
+                  }}
+                  onDeleteReport={async (id) => {
+                     const { error } = await supabase.from('linen_reports').delete().eq('id', id);
+                     if(!error) setLinenReports(prev => prev.filter(r => r.id !== id));
+                  }}
+                />;
       case 'orders-products': 
         return <ManageOrdersView 
                   orders={orders}
@@ -430,7 +478,7 @@ const App: React.FC = () => {
               {/* Sezione Ordini visibile a Admin, Reception E Operatori (per gestire i propri) */}
               {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION || currentUser.role === Role.OPERATOR) && (
                 <>
-                  <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Ordini</div>
+                  <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Operatività</div>
                   <NavItem 
                     icon={<ShoppingCart size={20} />} 
                     label="Ordini Prodotti" 
@@ -450,6 +498,12 @@ const App: React.FC = () => {
 
               {currentUser.role === Role.ADMIN && (
                 <>
+                   <NavItem 
+                    icon={<ClipboardList size={20} />} 
+                    label="Log Biancheria Sporca" 
+                    active={currentView === 'linen-issue-log'} 
+                    onClick={() => { setCurrentView('linen-issue-log'); setIsMenuOpen(false); }} 
+                  />
                   <div className="pt-4 pb-2 text-xs text-slate-500 uppercase font-bold tracking-wider">Amministrazione</div>
                   <NavItem 
                     icon={<Box size={20} />} 
@@ -595,12 +649,13 @@ const StructureDetailView: React.FC<{
   onNewInventory: (type: ItemType) => void;
   onRequestOrder: (type: ItemType) => void;
   onReportDamage: (type: ItemType) => void;
+  onLinenIssue: () => void;
   onEditStructure: (s: Structure) => void;
   onResolveDamage: (id: string) => void;
   onDeleteDamage: (id: string) => void;
 }> = ({
   structureId, currentUser, inventories, orders, products, structures, users, damageReports,
-  onBack, onNewInventory, onRequestOrder, onReportDamage, onEditStructure, onResolveDamage, onDeleteDamage
+  onBack, onNewInventory, onRequestOrder, onReportDamage, onLinenIssue, onEditStructure, onResolveDamage, onDeleteDamage
 }) => {
   const structure = structures.find(s => s.id === structureId);
   const [activeTab, setActiveTab] = useState<'info' | 'inventory' | 'orders' | 'damages'>('info');
@@ -679,35 +734,42 @@ const StructureDetailView: React.FC<{
       <div className="space-y-6">
         {activeTab === 'info' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             {/* Inventario Prodotti: Visibile a tutti (Operatori, Admin, Reception) */}
+             {/* Inventario Prodotti */}
              <div onClick={() => onNewInventory('PRODUCT')} className="cursor-pointer bg-emerald-50 border border-emerald-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-emerald-600 mb-3 shadow-sm"><Box /></div>
                 <h3 className="font-bold text-lg text-emerald-900">Inventario Prodotti</h3>
                 <p className="text-emerald-700 text-sm">Controlla e registra i consumabili</p>
              </div>
 
-             {/* Inventario Biancheria: Visibile a tutti (Operatori, Admin, Reception) */}
+             {/* Inventario Biancheria */}
              <div onClick={() => onNewInventory('LINEN')} className="cursor-pointer bg-indigo-50 border border-indigo-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-indigo-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-indigo-900">Conta Biancheria</h3>
                 <p className="text-indigo-700 text-sm">Gestione lavanderia e cambi</p>
              </div>
 
-             {/* Ordina Forniture: Visibile a Admin, Reception, Operatore */}
+             {/* Ordina Forniture */}
              <div onClick={() => onRequestOrder('PRODUCT')} className="cursor-pointer bg-orange-50 border border-orange-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-orange-600 mb-3 shadow-sm"><ShoppingCart /></div>
                 <h3 className="font-bold text-lg text-orange-900">Ordina Forniture</h3>
                 <p className="text-orange-700 text-sm">Richiedi prodotti mancanti</p>
              </div>
 
-             {/* Ordina Biancheria: Visibile a Operatore, Reception, Admin */}
+             {/* Ordina Biancheria */}
              <div onClick={() => onRequestOrder('LINEN')} className="cursor-pointer bg-sky-50 border border-sky-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-sky-600 mb-3 shadow-sm"><Shirt /></div>
                 <h3 className="font-bold text-lg text-sky-900">Ordina Biancheria</h3>
                 <p className="text-sky-700 text-sm">Richiedi set biancheria</p>
              </div>
+             
+             {/* Biancheria Sporca/Rotta */}
+             <div onClick={onLinenIssue} className="cursor-pointer bg-purple-50 border border-purple-100 p-6 rounded-xl hover:shadow-md transition">
+                <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-purple-600 mb-3 shadow-sm"><ClipboardList /></div>
+                <h3 className="font-bold text-lg text-purple-900">Biancheria Sporca/Rotta</h3>
+                <p className="text-purple-700 text-sm">Dichiara biancheria inutilizzata</p>
+             </div>
 
-             {/* Segnalazione Danni: Visibile a tutti */}
+             {/* Segnalazione Danni */}
              <div onClick={() => onReportDamage('PRODUCT')} className="cursor-pointer bg-red-50 border border-red-100 p-6 rounded-xl hover:shadow-md transition">
                 <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-red-600 mb-3 shadow-sm"><AlertTriangle /></div>
                 <h3 className="font-bold text-lg text-red-900">Segnala Guasto</h3>
@@ -806,6 +868,252 @@ const StructureDetailView: React.FC<{
       </div>
     </div>
   );
+};
+
+const NewLinenIssueView: React.FC<{
+   structureId: string;
+   currentUser: User;
+   products: Product[];
+   onSave: (report: any) => void;
+   onCancel: () => void;
+}> = ({ structureId, currentUser, products, onSave, onCancel }) => {
+   const linenProducts = products.filter(p => p.type === 'LINEN');
+   const [items, setItems] = useState<Record<string, { dirty: number, broken: number, unused: number }>>({});
+   const [notes, setNotes] = useState('');
+
+   const handleQtyChange = (pid: string, field: 'dirty' | 'broken' | 'unused', val: number) => {
+      setItems(prev => ({
+         ...prev,
+         [pid]: { ...prev[pid], [field]: val }
+      }));
+   };
+
+   const handleSubmit = () => {
+      // Convert map to array
+      const reportItems: LinenIssueItem[] = Object.entries(items).map(([pid, counts]) => ({
+         productId: pid,
+         dirty: counts.dirty || 0,
+         broken: counts.broken || 0,
+         unused: counts.unused || 0
+      })).filter(i => i.dirty > 0 || i.broken > 0 || i.unused > 0);
+
+      if (reportItems.length === 0) {
+         alert("Inserisci almeno una quantità.");
+         return;
+      }
+
+      onSave({
+         id: `lin-${Date.now()}`,
+         structureId,
+         reporterId: currentUser.id,
+         date: new Date().toISOString(),
+         items: reportItems,
+         notes
+      });
+   };
+
+   return (
+      <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-lg pb-20">
+         <h2 className="text-2xl font-bold mb-2 flex items-center gap-2 text-purple-700">
+            <ClipboardList /> Biancheria Sporca/Rotta
+         </h2>
+         <p className="text-gray-500 mb-6">Dichiara la biancheria che viene ritirata o che non è stata utilizzata.</p>
+         
+         <div className="space-y-4 mb-6">
+            <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">
+               <div className="col-span-5">Prodotto</div>
+               <div className="col-span-2 text-center text-orange-600">Sporco</div>
+               <div className="col-span-2 text-center text-red-600">Rotto</div>
+               <div className="col-span-2 text-center text-blue-600">Inutilizzato</div>
+            </div>
+            {linenProducts.map(p => {
+               const current = items[p.id] || { dirty: 0, broken: 0, unused: 0 };
+               return (
+                  <div key={p.id} className="grid grid-cols-12 gap-2 items-center border-b border-gray-100 pb-3">
+                     <div className="col-span-5 font-medium text-sm">{p.name} <span className="text-xs text-gray-400 font-normal">({p.unit})</span></div>
+                     <div className="col-span-2">
+                        <input type="number" min="0" className="w-full border border-orange-200 rounded p-1 text-center bg-orange-50" 
+                           value={current.dirty || ''} placeholder="0" onChange={e => handleQtyChange(p.id, 'dirty', parseInt(e.target.value)||0)} />
+                     </div>
+                     <div className="col-span-2">
+                        <input type="number" min="0" className="w-full border border-red-200 rounded p-1 text-center bg-red-50" 
+                           value={current.broken || ''} placeholder="0" onChange={e => handleQtyChange(p.id, 'broken', parseInt(e.target.value)||0)} />
+                     </div>
+                     <div className="col-span-2">
+                        <input type="number" min="0" className="w-full border border-blue-200 rounded p-1 text-center bg-blue-50" 
+                           value={current.unused || ''} placeholder="0" onChange={e => handleQtyChange(p.id, 'unused', parseInt(e.target.value)||0)} />
+                     </div>
+                  </div>
+               )
+            })}
+         </div>
+
+         <textarea 
+            className="w-full border p-3 rounded-lg mb-6 text-sm" 
+            rows={2} 
+            placeholder="Note aggiuntive..." 
+            value={notes} 
+            onChange={e => setNotes(e.target.value)}
+         />
+
+         <div className="flex gap-3">
+            <button onClick={handleSubmit} className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Salva Report</button>
+            <button onClick={onCancel} className="px-6 bg-gray-100 text-gray-700 rounded-lg font-medium">Annulla</button>
+         </div>
+      </div>
+   );
+};
+
+const LinenIssuesLogView: React.FC<{
+   reports: LinenIssueReport[];
+   structures: Structure[];
+   products: Product[];
+   users: User[];
+   onUpdateReport: (r: LinenIssueReport) => void;
+   onDeleteReport: (id: string) => void;
+}> = ({ reports, structures, products, users, onUpdateReport, onDeleteReport }) => {
+   const [startDate, setStartDate] = useState('');
+   const [endDate, setEndDate] = useState('');
+
+   // Filter
+   const filteredReports = useMemo(() => {
+      let res = [...reports];
+      if (startDate) {
+         res = res.filter(r => new Date(r.date) >= new Date(startDate));
+      }
+      if (endDate) {
+         // Include the whole end day
+         const end = new Date(endDate);
+         end.setHours(23, 59, 59);
+         res = res.filter(r => new Date(r.date) <= end);
+      }
+      return res.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+   }, [reports, startDate, endDate]);
+
+   const downloadCSV = () => {
+      const headers = ["ID", "Data", "Struttura", "Segnalatore", "Prodotto", "Sporchi", "Rotti", "Inutilizzati", "Note"];
+      const rows: string[] = [];
+      
+      rows.push(headers.join(","));
+
+      filteredReports.forEach(r => {
+         const structName = structures.find(s => s.id === r.structureId)?.name || 'N/A';
+         const reporterName = users.find(u => u.id === r.reporterId)?.name || 'N/A';
+         const dateStr = new Date(r.date).toLocaleString();
+
+         r.items.forEach(item => {
+            const prodName = products.find(p => p.id === item.productId)?.name || 'N/A';
+            const row = [
+               r.id,
+               `"${dateStr}"`,
+               `"${structName}"`,
+               `"${reporterName}"`,
+               `"${prodName}"`,
+               item.dirty,
+               item.broken,
+               item.unused,
+               `"${r.notes || ''}"`
+            ];
+            rows.push(row.join(","));
+         });
+      });
+
+      const csvContent = "data:text/csv;charset=utf-8," + rows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `report_biancheria_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+   };
+
+   // Simple Edit State just for deletion confirmation or small tweaks if needed
+   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+   return (
+      <div className="max-w-6xl mx-auto">
+         <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold flex items-center gap-2"><ClipboardList /> Log Biancheria</h2>
+            <button onClick={downloadCSV} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 shadow-sm font-medium">
+               <Download size={18} /> Scarica Excel/CSV
+            </button>
+         </div>
+
+         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 flex flex-wrap gap-4 items-end">
+            <div>
+               <label className="block text-xs font-bold text-gray-500 mb-1">Da:</label>
+               <input type="date" className="border p-2 rounded text-sm" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div>
+               <label className="block text-xs font-bold text-gray-500 mb-1">A:</label>
+               <input type="date" className="border p-2 rounded text-sm" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            </div>
+            <div className="pb-2 text-sm text-gray-400">
+               {filteredReports.length} report trovati
+            </div>
+         </div>
+
+         <div className="space-y-4">
+            {filteredReports.map(report => {
+               const struct = structures.find(s => s.id === report.structureId);
+               const reporter = users.find(u => u.id === report.reporterId);
+               
+               return (
+                  <div key={report.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                     <div className="flex justify-between items-start border-b border-gray-100 pb-2 mb-2">
+                        <div>
+                           <div className="font-bold text-lg text-gray-800">{struct?.name}</div>
+                           <div className="text-xs text-gray-500">{new Date(report.date).toLocaleString()} • {reporter?.name}</div>
+                        </div>
+                        <button onClick={() => setDeleteId(report.id)} className="text-red-400 hover:text-red-600 p-1">
+                           <Trash2 size={16} />
+                        </button>
+                     </div>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                           <thead>
+                              <tr className="text-gray-400 text-xs uppercase">
+                                 <th className="font-medium py-1">Prodotto</th>
+                                 <th className="font-medium py-1 text-orange-600">Sporco</th>
+                                 <th className="font-medium py-1 text-red-600">Rotto</th>
+                                 <th className="font-medium py-1 text-blue-600">Inutilizzato</th>
+                              </tr>
+                           </thead>
+                           <tbody>
+                              {report.items.map(item => {
+                                 const prod = products.find(p => p.id === item.productId);
+                                 return (
+                                    <tr key={item.productId} className="border-b border-gray-50 last:border-0">
+                                       <td className="py-1 font-medium text-gray-700">{prod?.name}</td>
+                                       <td className="py-1 font-mono">{item.dirty || '-'}</td>
+                                       <td className="py-1 font-mono">{item.broken || '-'}</td>
+                                       <td className="py-1 font-mono">{item.unused || '-'}</td>
+                                    </tr>
+                                 )
+                              })}
+                           </tbody>
+                        </table>
+                     </div>
+                     {report.notes && <div className="mt-2 text-xs text-gray-500 italic bg-gray-50 p-2 rounded">Note: {report.notes}</div>}
+                  </div>
+               );
+            })}
+            {filteredReports.length === 0 && <p className="text-center text-gray-400 py-10">Nessun dato trovato per il periodo selezionato.</p>}
+         </div>
+
+         <ConfirmationModal 
+            isOpen={!!deleteId}
+            title="Elimina Report"
+            message="Sei sicuro di voler eliminare questo report biancheria?"
+            onCancel={() => setDeleteId(null)}
+            onConfirm={() => {
+               if(deleteId) onDeleteReport(deleteId);
+               setDeleteId(null);
+            }}
+         />
+      </div>
+   );
 };
 
 const NewInventoryView: React.FC<{
