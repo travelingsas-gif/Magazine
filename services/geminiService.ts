@@ -3,7 +3,8 @@ import { Product } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const analyzeInventoryImage = async (base64Image: string, availableProducts: Product[]) => {
+// Fix: Add explicit return type to the function to ensure type safety for API responses.
+export const analyzeInventoryImage = async (base64Image: string, availableProducts: Product[]): Promise<{ productName: string; estimatedQuantity: number }[]> => {
   try {
     // We strip the data url prefix if present
     const cleanBase64 = base64Image.split(',')[1] || base64Image;
@@ -54,7 +55,17 @@ export const analyzeInventoryImage = async (base64Image: string, availableProduc
     const text = response.text;
     if (!text) return [];
     
-    return JSON.parse(text);
+    // Fix: Safely parse the JSON and ensure it's an array to avoid runtime errors.
+    try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+            return parsed;
+        }
+        return [];
+    } catch(e) {
+        console.error("Error parsing Gemini JSON response:", text, e);
+        return [];
+    }
 
   } catch (error) {
     console.error("Gemini analysis failed:", error);
