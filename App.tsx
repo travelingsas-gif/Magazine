@@ -1,10 +1,11 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, ShoppingCart, LogOut, Menu, X, 
   Plus, Send, AlertCircle, Clock, Bell, Truck, MapPin, 
   RefreshCw, Shirt, AlertTriangle, UserCheck, Loader, 
-  Download, Trash, CheckCircle2, History, Minus, Key, Calendar, Save
+  Download, Trash, CheckCircle2, History, Minus, Key, Calendar, Save, List, Check
 } from 'lucide-react';
 import { 
   Role, User, Product, Structure, InventoryReport, Order, 
@@ -24,7 +25,7 @@ const mapProduct = (p: any): Product => ({
 });
 const mapInventory = (i: any): InventoryReport => ({ 
   id: i.id, structureId: i.structure_id, operatorId: i.operator_id, date: i.date, 
-  items: i.items, signatureUrl: i.signature_url, photoUrl: i.photo_url, notes: i.notes, type: i.type 
+  items: i.items, signature_url: i.signature_url, photo_url: i.photo_url, notes: i.notes, type: i.type 
 });
 const mapOrder = (o: any): Order => ({ 
   id: o.id, structureId: o.structure_id, requesterId: o.requester_id, 
@@ -38,12 +39,13 @@ const mapDamageReport = (d: any): DamageReport => ({
 const mapUnusedLinen = (l: any): UnusedLinenReport => ({ 
   id: l.id, structureId: l.structure_id, operatorId: l.operator_id, date: l.date, 
   dirtyItems: l.dirty_items || [], unusedItems: l.unused_items || [], 
-  brokenItems: l.broken_items || [], notes: l.notes, signatureUrl: l.signature_url 
+  brokenItems: l.broken_items || [], notes: l.notes, signature_url: l.signature_url 
 });
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [structures, setStructures] = useState<Structure[]>([]);
@@ -57,7 +59,6 @@ const App: React.FC = () => {
   const [activeItemType, setActiveItemType] = useState<ItemType>('PRODUCT'); 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Modal State
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
 
   const fetchData = async () => {
@@ -65,7 +66,7 @@ const App: React.FC = () => {
     try {
        const [resUsers, resProds, resStructs, resInv, resOrd, resDmg, resLin] = await Promise.all([
          supabase.from('users').select('*'),
-         supabase.from('products').select('*'),
+         supabase.from('products').select('*').order('name'),
          supabase.from('structures').select('*'),
          supabase.from('inventories').select('*'),
          supabase.from('orders').select('*'),
@@ -83,8 +84,7 @@ const App: React.FC = () => {
        if (resOrd.data) setOrders(resOrd.data.map(mapOrder));
        if (resDmg.data) setDamageReports(resDmg.data.map(mapDamageReport));
        if (resLin.data) setUnusedLinenReports(resLin.data.map(mapUnusedLinen));
-
-    } catch (err: any) {
+    } catch (err) {
       console.error("Fetch error:", err);
     } finally {
       setLoading(false);
@@ -92,6 +92,11 @@ const App: React.FC = () => {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  const triggerSuccess = () => {
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 2000);
+  };
 
   const handleLogin = (email: string, pass: string) => {
     const user = users.find(u => u.email === email && u.password === pass);
@@ -114,7 +119,7 @@ const App: React.FC = () => {
     setConfirmModal({ isOpen: true, title, message, onConfirm });
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4"><Loader className="animate-spin text-emerald-600" size={48} /><p className="font-black text-slate-800 uppercase tracking-widest text-sm">Caricamento Sistema...</p></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4"><Loader className="animate-spin text-emerald-600" size={24} /><p className="font-black text-slate-800 uppercase tracking-widest text-[9px]">Caricamento...</p></div>;
   if (!currentUser || currentView === 'login') return <LoginView onLogin={handleLogin} />;
 
   const renderContent = () => {
@@ -131,14 +136,15 @@ const App: React.FC = () => {
       case 'structure-add':
         return <AddStructureView 
                   onSave={async (s) => {
-                    openConfirm("Nuova Struttura", `Vuoi aggiungere ${s.name}?`, async () => {
+                    openConfirm("Nuova Struttura", `Confermi l'aggiunta di ${s.name}?`, async () => {
                       const { data, error } = await supabase.from('structures').insert({
-                        name: s.name, address: s.address, access_codes: s.accessCodes
+                        id: crypto.randomUUID(), name: s.name, address: s.address, access_codes: s.accessCodes
                       }).select().single();
                       if (!error && data) { 
                         setStructures([...structures, mapStructure(data)]); 
                         setCurrentView('dashboard'); 
                         fetchData();
+                        triggerSuccess();
                       }
                       setConfirmModal(null);
                     });
@@ -149,36 +155,39 @@ const App: React.FC = () => {
         return <StructureDetailView 
                   structureId={selectedStructureId!}
                   currentUser={currentUser}
-                  inventories={inventories}
-                  orders={orders}
-                  products={products}
+                  damageReports={damageReports}
                   structures={structures}
                   users={users}
-                  damageReports={damageReports}
                   onBack={() => setCurrentView('dashboard')}
                   onNewInventory={(type) => { setActiveItemType(type); setCurrentView('inventory-new'); }}
                   onRequestOrder={(type) => { setActiveItemType(type); setCurrentView('order-new'); }}
                   onReportDamage={() => setCurrentView('damage-report-new')}
                   onReportLinen={() => setCurrentView('unused-linen-new')}
                   onUpdateDamageStatus={async (id, status) => {
-                    const { error } = await supabase.from('damage_reports').update({ status }).eq('id', id);
-                    if (!error) setDamageReports(damageReports.map(d => d.id === id ? { ...d, status } : d));
+                    openConfirm("Aggiorna Stato", "Vuoi cambiare lo stato di questa segnalazione?", async () => {
+                      const { error } = await supabase.from('damage_reports').update({ status }).eq('id', id);
+                      if (!error) {
+                        setDamageReports(damageReports.map(d => d.id === id ? { ...d, status } : d));
+                        triggerSuccess();
+                      }
+                      setConfirmModal(null);
+                    });
                   }}
                />;
       case 'inventory-new':
         return <NewInventoryView 
                   structureId={selectedStructureId!} currentUser={currentUser} products={products} type={activeItemType}
                   onSave={async (inv) => {
-                    openConfirm("Salva Inventario", "Confermi il salvataggio dei dati?", async () => {
+                    openConfirm("Salva Inventario", "Confermi il salvataggio dei dati dell'inventario?", async () => {
                       const { data, error } = await supabase.from('inventories').insert({
-                        structure_id: inv.structureId, operator_id: inv.operatorId,
-                        date: inv.date, items: inv.items, signature_url: inv.signatureUrl, photo_url: inv.photoUrl,
+                        id: crypto.randomUUID(), structure_id: inv.structureId, operator_id: inv.operatorId,
+                        date: inv.date, items: inv.items, signature_url: inv.signature_url, photo_url: inv.photo_url,
                         notes: inv.notes, type: inv.type
                       }).select().single();
                       if(!error && data) { 
-                        setInventories([...inventories, mapInventory(data)]); 
                         setCurrentView('structure-detail'); 
                         fetchData(); 
+                        triggerSuccess();
                       }
                       setConfirmModal(null);
                     });
@@ -189,15 +198,15 @@ const App: React.FC = () => {
         return <NewOrderView 
                   structureId={selectedStructureId!} currentUser={currentUser} products={products} type={activeItemType}
                   onSave={async (ord) => {
-                    openConfirm("Invia Richiesta Ordine", "La richiesta verrà notificata alla Reception. Confermi?", async () => {
+                    openConfirm("Invia Ordine", "Vuoi inoltrare questa richiesta d'ordine alla reception?", async () => {
                       const { data, error } = await supabase.from('orders').insert({
-                        structure_id: ord.structureId, requester_id: ord.requesterId,
+                        id: crypto.randomUUID(), structure_id: ord.structureId, requester_id: ord.requester_id,
                         date_created: ord.dateCreated, items: ord.items, status: ord.status, type: ord.type, signature_url: ord.signatureUrl
                       }).select().single();
                       if (!error && data) { 
-                        setOrders([...orders, mapOrder(data)]); 
                         setCurrentView('structure-detail'); 
                         fetchData(); 
+                        triggerSuccess();
                       }
                       setConfirmModal(null);
                     });
@@ -208,15 +217,15 @@ const App: React.FC = () => {
         return <NewDamageReportView
                 structureId={selectedStructureId!} currentUser={currentUser}
                 onSave={async (rep) => {
-                  openConfirm("Segnala Guasto", "Vuoi confermare la segnalazione alla direzione?", async () => {
+                  openConfirm("Segnala Guasto", "Vuoi inoltrare la segnalazione di guasto?", async () => {
                     const { data, error } = await supabase.from('damage_reports').insert({
-                       structure_id: rep.structureId, reporter_id: rep.reporterId,
+                       id: crypto.randomUUID(), structure_id: rep.structureId, reporter_id: rep.reporter_id,
                        date: rep.date, items: rep.items, notes: rep.notes, status: rep.status
                     }).select().single();
                     if(!error && data) { 
-                      setDamageReports([...damageReports, mapDamageReport(data)]); 
                       setCurrentView('structure-detail'); 
                       fetchData(); 
+                      triggerSuccess();
                     }
                     setConfirmModal(null);
                   });
@@ -227,473 +236,432 @@ const App: React.FC = () => {
         return <NewUnusedLinenView 
                 structureId={selectedStructureId!} currentUser={currentUser} products={products}
                 onSave={async (rep) => {
-                  openConfirm("Salva Report Biancheria", "Tutti i dati verranno salvati nello storico. Confermi?", async () => {
+                  openConfirm("Invia Report Biancheria", "Confermi l'invio del report biancheria?", async () => {
                     const { data, error } = await supabase.from('unused_linen_reports').insert({
-                      structure_id: rep.structureId, operator_id: rep.operatorId,
-                      date: rep.date, dirty_items: rep.dirtyItems, unused_items: rep.unusedItems, broken_items: rep.brokenItems,
-                      notes: rep.notes, signature_url: rep.signatureUrl
+                      id: crypto.randomUUID(), structure_id: rep.structureId, operator_id: rep.operatorId,
+                      date: rep.date, dirty_items: rep.dirty_items, unused_items: rep.unused_items, broken_items: rep.broken_items,
+                      notes: rep.notes, signature_url: rep.signature_url
                     }).select().single();
                     if (!error && data) { 
-                      setUnusedLinenReports([...unusedLinenReports, mapUnusedLinen(data)]); 
                       setCurrentView('structure-detail'); 
                       fetchData(); 
+                      triggerSuccess();
                     }
                     setConfirmModal(null);
                   });
                 }}
                 onCancel={() => setCurrentView('structure-detail')}
               />;
+      case 'products-management':
+        return <ProductManagementView 
+                  products={products} 
+                  onSave={async (p) => {
+                    openConfirm("Aggiungi Prodotto", `Vuoi aggiungere ${p.name} al catalogo?`, async () => {
+                      const { error } = await supabase.from('products').insert({ id: crypto.randomUUID(), ...p });
+                      if (!error) {
+                        fetchData();
+                        triggerSuccess();
+                      }
+                      setConfirmModal(null);
+                    });
+                  }}
+                  onDelete={async (id) => {
+                    openConfirm("Elimina Prodotto", "Vuoi rimuovere questo articolo dal catalogo?", async () => {
+                      const { error } = await supabase.from('products').delete().eq('id', id);
+                      if (!error) {
+                        fetchData();
+                        triggerSuccess();
+                      }
+                      setConfirmModal(null);
+                    });
+                  }}
+                  onBack={() => setCurrentView('dashboard')}
+                />;
       case 'admin-linen-summary':
-        return <AdminLinenSummaryView reports={unusedLinenReports} products={products} structures={structures} users={users} onBack={() => setCurrentView('dashboard')} />;
+        return <AdminLinenSummaryView onBack={() => setCurrentView('dashboard')} />;
       case 'orders-products': 
-        return <ManageOrdersView orders={orders} structures={structures} products={products} users={users} currentUser={currentUser} targetType="PRODUCT" onUpdateOrder={async (o) => { await supabase.from('orders').update({ items: o.items, status: o.status }).eq('id', o.id); fetchData(); }} onDeleteOrder={async (id) => { await supabase.from('orders').delete().eq('id', id); fetchData(); }} />;
+        return <ManageOrdersView orders={orders} structures={structures} products={products} users={users} currentUser={currentUser} targetType="PRODUCT" onUpdateOrder={async (o, s) => { openConfirm("Aggiorna Ordine", "Confermi l'aggiornamento dello stato dell'ordine?", async () => { await supabase.from('orders').update({ items: o.items, status: s, date_sent: s === OrderStatus.SENT ? new Date().toISOString() : o.dateSent }).eq('id', o.id); fetchData(); triggerSuccess(); setConfirmModal(null); }); }} onDeleteOrder={async (id) => { openConfirm("Elimina Ordine", "Vuoi cancellare definitivamente questo ordine?", async () => { await supabase.from('orders').delete().eq('id', id); fetchData(); triggerSuccess(); setConfirmModal(null); }); }} />;
       case 'orders-linen': 
-        return <ManageOrdersView orders={orders} structures={structures} products={products} users={users} currentUser={currentUser} targetType="LINEN" onUpdateOrder={async (o) => { await supabase.from('orders').update({ items: o.items, status: o.status }).eq('id', o.id); fetchData(); }} onDeleteOrder={async (id) => { await supabase.from('orders').delete().eq('id', id); fetchData(); }} />;
+        return <ManageOrdersView orders={orders} structures={structures} products={products} users={users} currentUser={currentUser} targetType="LINEN" onUpdateOrder={async (o, s) => { openConfirm("Aggiorna Ordine", "Confermi l'aggiornamento dello stato dell'ordine?", async () => { await supabase.from('orders').update({ items: o.items, status: s, date_sent: s === OrderStatus.SENT ? new Date().toISOString() : o.dateSent }).eq('id', o.id); fetchData(); triggerSuccess(); setConfirmModal(null); }); }} onDeleteOrder={async (id) => { openConfirm("Elimina Ordine", "Vuoi cancellare definitivamente questo ordine?", async () => { await supabase.from('orders').delete().eq('id', id); fetchData(); triggerSuccess(); setConfirmModal(null); }); }} />;
       case 'supplier-dashboard':
-        return <SupplierDashboardView orders={orders} structures={structures} products={products} currentUser={currentUser} onOrderDelivered={() => fetchData()} />;
+        return <SupplierDashboardView orders={orders} structures={structures} products={products} currentUser={currentUser} onOrderDelivered={() => { fetchData(); triggerSuccess(); }} />;
       default:
         return <DashboardView structures={structures} onSelectStructure={(id) => { setSelectedStructureId(id); setCurrentView('structure-detail'); }} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} onAddStructure={() => {}} />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-800 text-[13px]">
+      {showSuccess && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[200] bg-emerald-600 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-emerald-500 animate-bounce">
+           <Check size={16} />
+           <span className="font-black text-[10px] uppercase tracking-widest">Fatto</span>
+        </div>
+      )}
+
       {confirmModal?.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-white/20">
-            <div className="bg-emerald-100 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto text-emerald-600">
-              <CheckCircle2 size={32} />
-            </div>
-            <h3 className="text-2xl font-black text-center text-slate-800 mb-2">{confirmModal.title}</h3>
-            <p className="text-gray-500 text-center mb-8 font-medium">{confirmModal.message}</p>
-            <div className="flex gap-3">
-              <button onClick={confirmModal.onConfirm} className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-200 active:scale-95 transition-all">CONFERMA</button>
-              <button onClick={() => setConfirmModal(null)} className="flex-1 bg-slate-100 text-slate-500 py-4 rounded-2xl font-black active:scale-95 transition-all">ANNULLA</button>
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-white rounded-xl p-5 max-w-[300px] w-full shadow-2xl border border-slate-100">
+            <h3 className="text-base font-black text-slate-900 mb-1 uppercase tracking-tighter">{confirmModal.title}</h3>
+            <p className="text-slate-500 mb-5 font-medium text-[11px] leading-relaxed">{confirmModal.message}</p>
+            <div className="flex gap-2">
+              <button onClick={confirmModal.onConfirm} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-lg font-black text-[9px] uppercase tracking-widest active:scale-95 transition-all">CONFERMA</button>
+              <button onClick={() => setConfirmModal(null)} className="flex-1 bg-slate-100 text-slate-500 py-2.5 rounded-lg font-black text-[9px] uppercase tracking-widest active:scale-95">ANNULLA</button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="md:hidden bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20">
-        <h1 className="text-xl font-black text-emerald-700 uppercase tracking-tighter">CleanManage</h1>
-        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 bg-slate-100 rounded-xl">{isMenuOpen ? <X /> : <Menu />}</button>
+      <div className="md:hidden bg-white border-b border-slate-200 p-3 flex justify-between items-center sticky top-0 z-20">
+        <h1 className="text-sm font-black text-emerald-700 uppercase tracking-tighter">CleanManage</h1>
+        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-1.5 bg-slate-50 rounded-lg border border-slate-200">{isMenuOpen ? <X size={16}/> : <Menu size={16}/>}</button>
       </div>
       
-      <aside className={`fixed inset-y-0 left-0 transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition duration-300 ease-in-out w-72 bg-slate-900 text-white p-8 flex flex-col z-30 shadow-2xl`}>
-        <div className="hidden md:flex items-center gap-3 mb-12">
-          <div className="bg-emerald-500 p-2 rounded-xl shadow-lg shadow-emerald-500/20"><Building2 size={24} className="text-white" /></div>
-          <span className="text-2xl font-black tracking-tight">CleanManage</span>
+      <aside className={`fixed inset-y-0 left-0 transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition duration-300 ease-in-out w-56 bg-slate-900 text-white p-4 flex flex-col z-30 shadow-xl`}>
+        <div className="hidden md:flex items-center gap-2 mb-6">
+          <div className="bg-emerald-500 p-1 rounded-md"><Building2 size={16} className="text-white" /></div>
+          <span className="text-base font-black tracking-tight">CleanManage</span>
         </div>
         
-        <nav className="flex-1 space-y-3">
+        <nav className="flex-1 space-y-1">
           {currentUser.role !== Role.SUPPLIER && (
-            <NavItem icon={<Building2 size={22} />} label="Proprietà" active={currentView === 'dashboard' || currentView === 'structure-detail'} onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} />
+            <NavItem icon={<Building2 size={15} />} label="Proprietà" active={currentView === 'dashboard' || currentView === 'structure-detail'} onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} />
           )}
           {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) && (
             <>
-              <div className="pt-8 pb-3 text-[10px] text-slate-500 uppercase font-black tracking-[0.2em]">Magazzino Centrale</div>
-              <NavItem icon={<ShoppingCart size={22} />} label="Ordini Prodotti" badge={getUnreadOrdersCount('PRODUCT')} active={currentView === 'orders-products'} onClick={() => { setCurrentView('orders-products'); setIsMenuOpen(false); }} />
-              <NavItem icon={<Shirt size={22} />} label="Ordini Lavanderia" badge={getUnreadOrdersCount('LINEN')} active={currentView === 'orders-linen'} onClick={() => { setCurrentView('orders-linen'); setIsMenuOpen(false); }} />
+              <div className="pt-4 pb-1 text-[7px] text-slate-500 uppercase font-black tracking-[0.2em] ml-2">Area Magazzino</div>
+              <NavItem icon={<ShoppingCart size={15} />} label="Ordini Prodotti" badge={getUnreadOrdersCount('PRODUCT')} active={currentView === 'orders-products'} onClick={() => { setCurrentView('orders-products'); setIsMenuOpen(false); }} />
+              <NavItem icon={<Shirt size={15} />} label="Ordini Lavanderia" badge={getUnreadOrdersCount('LINEN')} active={currentView === 'orders-linen'} onClick={() => { setCurrentView('orders-linen'); setIsMenuOpen(false); }} />
             </>
           )}
           {currentUser.role === Role.ADMIN && (
-            <NavItem icon={<History size={22} />} label="Report Biancheria" active={currentView === 'admin-linen-summary'} onClick={() => { setCurrentView('admin-linen-summary'); setIsMenuOpen(false); }} />
+            <>
+              <div className="pt-4 pb-1 text-[7px] text-slate-500 uppercase font-black tracking-[0.2em] ml-2">Amministrazione</div>
+              <NavItem icon={<List size={15} />} label="Catalogo" active={currentView === 'products-management'} onClick={() => { setCurrentView('products-management'); setIsMenuOpen(false); }} />
+              <NavItem icon={<History size={15} />} label="Log Report" active={currentView === 'admin-linen-summary'} onClick={() => { setCurrentView('admin-linen-summary'); setIsMenuOpen(false); }} />
+            </>
           )}
           {currentUser.role === Role.SUPPLIER && (
-            <NavItem icon={<Truck size={22} />} label="Pannello Consegne" active={currentView === 'supplier-dashboard'} onClick={() => { setCurrentView('supplier-dashboard'); setIsMenuOpen(false); }} />
+            <NavItem icon={<Truck size={15} />} label="Mie Consegne" active={currentView === 'supplier-dashboard'} onClick={() => { setCurrentView('supplier-dashboard'); setIsMenuOpen(false); }} />
           )}
         </nav>
 
-        <div className="mt-auto pt-8 border-t border-slate-800">
-          <div className="flex items-center gap-3 mb-6 p-2 bg-slate-800/50 rounded-2xl border border-white/5">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center font-black text-white uppercase">{currentUser.name[0]}</div>
+        <div className="mt-auto pt-4 border-t border-slate-800 text-[10px]">
+          <div className="flex items-center gap-2 mb-3 p-1.5 bg-slate-800/30 rounded-lg">
+            <div className="w-6 h-6 rounded bg-emerald-500 flex items-center justify-center font-black text-white uppercase text-[9px]">{currentUser.name[0]}</div>
             <div className="overflow-hidden">
-              <p className="font-bold text-sm truncate">{currentUser.name}</p>
-              <p className="text-[10px] text-slate-500 uppercase font-black">{currentUser.role}</p>
+              <p className="font-bold truncate leading-none">{currentUser.name}</p>
+              <p className="text-[7px] text-slate-500 uppercase font-black mt-0.5">{currentUser.role}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 text-slate-400 hover:text-red-400 font-bold transition-colors p-2"><LogOut size={20} /><span>Esci</span></button>
+          <button onClick={handleLogout} className="w-full flex items-center gap-2 text-slate-400 hover:text-red-400 font-bold p-1 transition-colors"><LogOut size={13} /><span>Esci</span></button>
         </div>
       </aside>
       
-      <main className="flex-1 p-4 md:p-10 overflow-y-auto h-screen bg-[#F8FAFC]">{renderContent()}</main>
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto h-screen bg-slate-50">{renderContent()}</main>
     </div>
   );
 };
 
-// --- SubComponents ---
-
+// --- NavItem ---
 const NavItem: React.FC<{ icon: any, label: string, active?: boolean, onClick: () => void, badge?: number }> = ({ icon, label, active, onClick, badge }) => (
-  <button onClick={onClick} className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all duration-200 group ${active ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-100'}`}>
-    <div className="flex items-center gap-4">
-      <div className={`${active ? 'text-white' : 'text-slate-500 group-hover:text-emerald-400'} transition-colors`}>{icon}</div>
-      <span className="font-bold text-sm tracking-tight">{label}</span>
+  <button onClick={onClick} className={`w-full flex items-center justify-between p-2 rounded-lg transition-all duration-200 group ${active ? 'bg-emerald-600 text-white shadow' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-100'}`}>
+    <div className="flex items-center gap-2">
+      <div className={`${active ? 'text-white' : 'text-slate-500 group-hover:text-emerald-400'}`}>{icon}</div>
+      <span className="font-bold text-[11px] tracking-tight">{label}</span>
     </div>
-    {badge ? <span className="bg-red-500 text-white text-[10px] px-2.5 py-1 rounded-full font-black animate-pulse shadow-lg shadow-red-500/20">{badge}</span> : null}
+    {badge ? <span className="bg-red-500 text-white text-[7px] px-1.5 py-0.5 rounded-full font-black">{badge}</span> : null}
   </button>
 );
 
+// --- LoginView ---
 const LoginView: React.FC<{ onLogin: (e: string, p: string) => void }> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-      <div className="bg-white p-10 rounded-[3rem] shadow-2xl w-full max-w-md border border-slate-100 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -mr-16 -mt-16"></div>
-        <div className="relative">
-          <div className="flex justify-center mb-8"><div className="bg-emerald-100 p-5 rounded-[2rem] text-emerald-600"><Building2 size={48} /></div></div>
-          <h2 className="text-3xl font-black text-center text-slate-900 mb-2 uppercase tracking-tighter">CleanManage</h2>
-          <p className="text-center text-slate-400 mb-10 font-medium uppercase text-xs tracking-widest">Login Portale Gestionale</p>
-          <form onSubmit={(e) => { e.preventDefault(); onLogin(email, password); }} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Email</label>
-              <input className="w-full border-2 border-slate-50 p-4 rounded-2xl focus:border-emerald-500 focus:bg-white bg-slate-50 transition-all outline-none font-bold" type="email" placeholder="nome@azienda.it" value={email} onChange={e => setEmail(e.target.value)} required />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Password</label>
-              <input className="w-full border-2 border-slate-50 p-4 rounded-2xl focus:border-emerald-500 focus:bg-white bg-slate-50 transition-all outline-none font-bold" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
-            </div>
-            <button className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-xl shadow-slate-900/20 hover:bg-emerald-600 transition-all active:scale-95 mt-6 uppercase tracking-widest">ACCEDI ORA</button>
-          </form>
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-white p-4">
+      <div className="w-full max-w-[320px] p-6 border border-slate-200 rounded-xl shadow-sm">
+        <div className="flex justify-center mb-5"><div className="bg-emerald-50 p-3 rounded-xl text-emerald-600 border border-emerald-100"><Building2 size={24} /></div></div>
+        <h2 className="text-lg font-black text-center text-slate-900 mb-1 uppercase tracking-tighter">CleanManage</h2>
+        <p className="text-center text-slate-400 mb-6 font-medium uppercase text-[8px] tracking-[0.2em]">Gestione Operativa</p>
+        <form onSubmit={(e) => { e.preventDefault(); onLogin(email, password); }} className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-[7px] font-black uppercase text-slate-400 px-1 tracking-widest">Email</label>
+            <input className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50 text-[11px] font-bold outline-none focus:border-emerald-500 focus:bg-white" type="email" placeholder="email@azienda.it" value={email} onChange={e => setEmail(e.target.value)} required />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[7px] font-black uppercase text-slate-400 px-1 tracking-widest">Password</label>
+            <input className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50 text-[11px] font-bold outline-none focus:border-emerald-500 focus:bg-white" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
+          </div>
+          <button className="w-full bg-slate-900 text-white py-3 rounded-lg font-black shadow-lg hover:bg-emerald-600 transition-all uppercase tracking-widest text-[9px] mt-2">ACCEDI</button>
+        </form>
       </div>
     </div>
   );
 };
 
-const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id: string) => void, role: Role, pendingOrdersCount: number, onNavigateToOrders: () => void, onAddStructure: () => void }> = ({ structures, onSelectStructure, pendingOrdersCount, onNavigateToOrders, onAddStructure, role }) => (
-  <div className="animate-fade-in max-w-7xl mx-auto">
-    <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
-      <div>
-        <h2 className="text-4xl font-black text-slate-900 tracking-tight">Zone e Strutture</h2>
-        <p className="text-slate-400 font-medium text-lg mt-1">Seleziona una proprietà per operare.</p>
-      </div>
-      {role === Role.ADMIN && (
-        <button onClick={onAddStructure} className="flex items-center gap-3 bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl shadow-emerald-500/20 hover:bg-emerald-700 transition-all active:scale-95 uppercase text-xs tracking-widest">
-          <Plus size={24} /> NUOVA STRUTTURA
-        </button>
-      )}
-    </div>
+// --- ProductManagementView ---
+const ProductManagementView: React.FC<{ products: Product[], onSave: (p: any) => Promise<void>, onDelete: (id: string) => Promise<void>, onBack: () => void }> = ({ products, onSave, onDelete, onBack }) => {
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState<Product['category']>('OTHER');
+  const [unit, setUnit] = useState('Pz');
+  const [type, setType] = useState<ItemType>('PRODUCT');
 
-    {pendingOrdersCount > 0 && (
-      <div onClick={onNavigateToOrders} className="mb-10 bg-slate-900 text-white p-8 rounded-[2.5rem] flex items-center justify-between cursor-pointer hover:bg-emerald-600 transition-all shadow-2xl group border-4 border-emerald-500/20">
-        <div className="flex items-center gap-6">
-          <div className="bg-emerald-500 p-4 rounded-2xl group-hover:bg-white group-hover:text-emerald-600 transition-all">
-            <Bell size={28} />
-          </div>
-          <div>
-            <p className="text-2xl font-black">Ci sono {pendingOrdersCount} ordini in sospeso</p>
-            <p className="text-emerald-400 font-bold group-hover:text-white transition-all uppercase text-xs tracking-widest">Revisione ordini operatori richiesta</p>
-          </div>
+  return (
+    <div className="animate-fade-in max-w-4xl mx-auto">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-slate-400 mb-4 hover:text-emerald-600 font-black uppercase text-[8px] tracking-widest">
+        <div className="p-1 bg-white rounded border border-slate-200"><X size={10} /></div> CHIUDI
+      </button>
+      <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter">Catalogo Aziendale</h2>
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
+        <h3 className="font-black text-[9px] uppercase tracking-widest mb-3 text-emerald-600">Aggiungi Nuovo Articolo</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <input className="border border-slate-200 p-2 rounded-lg text-[11px] font-bold outline-none bg-slate-50 focus:border-emerald-500 focus:bg-white" value={name} onChange={e => setName(e.target.value)} placeholder="Nome articolo..." />
+          <select className="border border-slate-200 p-2 rounded-lg text-[11px] font-bold outline-none bg-slate-50" value={category} onChange={e => setCategory(e.target.value as any)}>
+            <option value="CLEANING">Pulizia</option>
+            <option value="FOOD">Food</option>
+            <option value="AMENITIES">Kit Benvenuto</option>
+            <option value="LINEN_BED">Letto</option>
+            <option value="LINEN_BATH">Bagno</option>
+            <option value="OTHER">Altro</option>
+          </select>
+          <input className="border border-slate-200 p-2 rounded-lg text-[11px] font-bold outline-none bg-slate-50" value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unità (Pz, Lt)" />
+          <select className="border border-slate-200 p-2 rounded-lg text-[11px] font-bold outline-none bg-slate-50" value={type} onChange={e => setType(e.target.value as any)}>
+            <option value="PRODUCT">Consumabile</option>
+            <option value="LINEN">Biancheria</option>
+          </select>
         </div>
-        <div className="bg-white/10 px-6 py-3 rounded-xl font-black group-hover:bg-white group-hover:text-emerald-600 transition-all">GESTISCI</div>
+        <button onClick={() => { if(name) { onSave({ name, category, unit, type }); setName(''); } }} className="mt-4 bg-slate-900 text-white px-4 py-2 rounded-lg font-black text-[8px] tracking-widest uppercase shadow active:scale-95 transition-all">REGISTRA PRODOTTO</button>
+      </div>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 text-[8px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-200">
+            <tr><th className="p-3">Articolo</th><th className="p-3">Tipo</th><th className="p-3">Unità</th><th className="p-3 text-right">Azioni</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-[11px]">
+            {products.map(p => (
+              <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                <td className="p-3 font-black uppercase tracking-tight">{p.name} <span className="text-[7px] text-slate-400 ml-1 italic">{p.category}</span></td>
+                <td className="p-3"><span className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${p.type === 'LINEN' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>{p.type === 'LINEN' ? 'Lavanderia' : 'Prodotto'}</span></td>
+                <td className="p-3 text-slate-400 font-bold uppercase">{p.unit}</td>
+                <td className="p-3 text-right"><button onClick={() => onDelete(p.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash size={14}/></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// --- DashboardView ---
+const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id: string) => void, role: Role, pendingOrdersCount: number, onNavigateToOrders: () => void, onAddStructure: () => void }> = ({ structures, onSelectStructure, pendingOrdersCount, onNavigateToOrders, onAddStructure, role }) => (
+  <div className="animate-fade-in max-w-6xl mx-auto">
+    <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-6">
+      <div><h2 className="text-xl font-black text-slate-900 tracking-tight">Proprietà</h2><p className="text-slate-400 font-medium text-[10px] uppercase tracking-widest">Scegli la struttura su cui operare</p></div>
+      {role === Role.ADMIN && <button onClick={onAddStructure} className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-2 rounded-lg font-black shadow active:scale-95 uppercase text-[8px] tracking-widest"><Plus size={14} /> NUOVA PROPRIETÀ</button>}
+    </div>
+    {pendingOrdersCount > 0 && (
+      <div onClick={onNavigateToOrders} className="mb-6 bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between cursor-pointer hover:bg-emerald-600 shadow-xl group border border-white/5 transition-all">
+        <div className="flex items-center gap-3"><div className="bg-emerald-500 p-2 rounded-lg"><Bell size={18} /></div><div><p className="text-sm font-black uppercase tracking-tight">{pendingOrdersCount} nuovi ordini in coda</p><p className="text-emerald-400 font-bold uppercase text-[7px] tracking-widest">Azione richiesta</p></div></div>
+        <div className="bg-white/10 px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest group-hover:bg-white group-hover:text-emerald-600 transition-all">GESTISCI</div>
       </div>
     )}
-
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {structures.map(s => (
-        <div key={s.id} onClick={() => onSelectStructure(s.id)} className="bg-white rounded-[2.5rem] shadow-sm hover:shadow-2xl cursor-pointer border border-slate-100 overflow-hidden transition-all duration-300 group hover:-translate-y-2">
-          <div className="relative h-56 overflow-hidden">
-            <img src={s.imageUrl || `https://picsum.photos/seed/${s.id}/800/400`} className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" alt={s.name} />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent"></div>
-            <div className="absolute bottom-6 left-6 text-white">
-              <h3 className="font-black text-2xl uppercase tracking-tighter">{s.name}</h3>
-              <p className="text-white/70 text-xs font-bold flex items-center gap-1 mt-1 tracking-widest"><MapPin size={14} /> {s.address}</p>
+        <div key={s.id} onClick={() => onSelectStructure(s.id)} className="bg-white rounded-xl shadow-sm hover:shadow-lg cursor-pointer border border-slate-200 overflow-hidden group transition-all hover:-translate-y-0.5">
+          <div className="relative h-32 overflow-hidden border-b border-slate-100">
+            <img src={s.imageUrl || `https://picsum.photos/seed/${s.id}/800/400`} className="h-full w-full object-cover group-hover:scale-105 transition-all duration-700 opacity-80" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent"></div>
+            <div className="absolute bottom-2.5 left-3 text-white">
+              <h3 className="font-black text-sm uppercase tracking-tighter leading-none">{s.name}</h3>
+              <p className="text-white/70 text-[7px] font-bold flex items-center gap-1 mt-0.5 tracking-widest uppercase"><MapPin size={10} /> {s.address}</p>
             </div>
           </div>
-          <div className="p-8 flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Gestione Attiva</span>
-            <div className="text-slate-900 font-black flex items-center gap-2 group-hover:text-emerald-600 transition-all uppercase text-[10px] tracking-widest">
-              Dettagli <ArrowRight size={14} className="ml-1" />
-            </div>
-          </div>
+          <div className="p-3.5 flex items-center justify-between"><span className="text-[7px] font-black uppercase text-slate-400 tracking-widest">Attivo</span><div className="text-slate-900 font-black flex items-center gap-1.5 group-hover:text-emerald-600 transition-all uppercase text-[7px] tracking-widest">Vai alla gestione <ArrowRight size={9}/></div></div>
         </div>
       ))}
     </div>
   </div>
 );
 
-const ArrowRight = ({ size, className }: { size: number, className: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M5 12h14M12 5l7 7-7 7" />
-  </svg>
+const ArrowRight = ({ size }: { size: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
 );
 
-const AddStructureView: React.FC<{ onSave: (s: any) => void, onCancel: () => void }> = ({ onSave, onCancel }) => {
-  const [form, setForm] = useState({ name: '', address: '', accessCodes: '' });
-  return (
-    <div className="max-w-2xl mx-auto bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 animate-fade-in">
-      <h2 className="text-3xl font-black text-slate-900 mb-2 uppercase tracking-tighter">Nuova Struttura</h2>
-      <p className="text-slate-400 mb-10 font-medium uppercase text-xs tracking-widest">Aggiungi una nuova proprietà al sistema</p>
-      <div className="space-y-6 mb-12">
-        <div className="space-y-1">
-          <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Nome Proprietà</label>
-          <input className="w-full border-2 border-slate-50 p-5 rounded-2xl focus:border-emerald-500 focus:bg-white bg-slate-50 transition-all outline-none font-bold" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Es. Villa Paradiso" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Indirizzo</label>
-          <input className="w-full border-2 border-slate-50 p-5 rounded-2xl focus:border-emerald-500 focus:bg-white bg-slate-50 transition-all outline-none font-bold" value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Via..." />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Accessi (Codici/Keybox)</label>
-          <textarea className="w-full border-2 border-slate-50 p-5 rounded-2xl focus:border-emerald-500 focus:bg-white bg-slate-50 transition-all outline-none h-32 font-bold" value={form.accessCodes} onChange={e => setForm({...form, accessCodes: e.target.value})} placeholder="Es. Keybox: 1234" />
-        </div>
-      </div>
-      <div className="flex gap-4">
-        <button onClick={() => onSave(form)} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black shadow-xl hover:bg-emerald-600 transition-all active:scale-95 uppercase tracking-widest text-xs">SALVA</button>
-        <button onClick={onCancel} className="px-10 bg-slate-100 text-slate-500 rounded-2xl font-black hover:bg-slate-200 transition-all uppercase text-xs tracking-widest">ANNULLA</button>
-      </div>
-    </div>
-  );
-};
-
+// --- StructureDetailView ---
 const StructureDetailView: React.FC<{
-  structureId: string; currentUser: User; inventories: InventoryReport[]; orders: Order[];
-  products: Product[]; structures: Structure[]; users: User[]; damageReports: DamageReport[];
+  structureId: string; currentUser: User; damageReports: DamageReport[]; structures: Structure[]; users: User[];
   onBack: () => void; onNewInventory: (t: ItemType) => void; onRequestOrder: (t: ItemType) => void;
   onReportDamage: () => void; onReportLinen: () => void; onUpdateDamageStatus: (id: string, s: any) => void;
-}> = ({
-  structureId, currentUser, structures, damageReports, users,
-  onBack, onNewInventory, onRequestOrder, onReportDamage, onReportLinen, onUpdateDamageStatus
-}) => {
+}> = ({ structureId, structures, damageReports, users, onBack, onNewInventory, onRequestOrder, onReportDamage, onReportLinen, onUpdateDamageStatus }) => {
   const structure = structures.find(s => s.id === structureId);
-  const [activeTab, setActiveTab] = useState<'info' | 'damages' | 'history'>('info');
-
-  if (!structure) return <div>Non trovato</div>;
+  const [activeTab, setActiveTab] = useState<'info' | 'damages'>('info');
+  if (!structure) return null;
   const structDamages = damageReports.filter(d => d.structureId === structure.id && d.status !== 'ARCHIVED');
 
   return (
-    <div className="max-w-6xl mx-auto animate-fade-in">
-      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 mb-8 hover:text-emerald-600 font-black transition-all group uppercase text-[10px] tracking-widest">
-        <div className="p-2 bg-white rounded-xl shadow-sm group-hover:shadow-md transition-all"><X size={18} /></div> TORNA ALLE PROPRIETÀ
+    <div className="max-w-5xl mx-auto animate-fade-in">
+      <button onClick={onBack} className="flex items-center gap-1 text-slate-400 mb-4 hover:text-emerald-600 font-black uppercase text-[8px] tracking-widest">
+        <div className="p-1 bg-white rounded border border-slate-200 shadow-sm"><X size={10} /></div> TORNA ALLE PROPRIETÀ
       </button>
-      
-      <div className="bg-slate-900 p-10 rounded-[3rem] shadow-2xl mb-12 flex flex-col md:flex-row md:items-center justify-between gap-8 border-4 border-emerald-500/10 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full -mr-32 -mt-32"></div>
-        <div className="relative">
-          <h1 className="text-5xl font-black text-white tracking-tighter uppercase">{structure.name}</h1>
-          <p className="text-emerald-400 font-bold text-lg mt-2 flex items-center gap-2 tracking-widest"><MapPin size={20} /> {structure.address}</p>
-        </div>
-        <div className="relative font-mono bg-white/5 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 flex items-center gap-4 group">
-          <div className="bg-emerald-500 p-3 rounded-xl shadow-lg text-white"><Key size={24} /></div>
-          <div className="pr-4">
-            <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-1">Accesso Operatore</p>
-            <span className="text-white font-black text-2xl tracking-[0.2em]">{structure.accessCodes}</span>
-          </div>
+      <div className="bg-slate-900 p-5 rounded-xl shadow-xl mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-white/5 relative overflow-hidden">
+        <div><h1 className="text-2xl font-black text-white tracking-tighter uppercase leading-none">{structure.name}</h1><p className="text-emerald-400 font-bold text-[10px] mt-1 tracking-widest uppercase flex items-center gap-1.5 opacity-80"><MapPin size={12} /> {structure.address}</p></div>
+        <div className="relative bg-white/5 border border-white/10 p-3 rounded-lg flex items-center gap-3">
+          <div className="bg-emerald-500 p-1.5 rounded text-white"><Key size={16} /></div>
+          <div><p className="text-[6px] text-white/40 uppercase font-black tracking-widest mb-0.5">Note Accesso</p><span className="text-white font-black text-base tracking-wider">{structure.accessCodes}</span></div>
         </div>
       </div>
-
-      <div className="flex gap-12 mb-10 border-b-2 border-slate-100">
-        <button onClick={() => setActiveTab('info')} className={`pb-4 whitespace-nowrap font-black transition-all relative text-xs tracking-widest uppercase ${activeTab === 'info' ? 'text-emerald-600' : 'text-slate-400'}`}>
-          OPERAZIONI {activeTab === 'info' && <div className="absolute bottom-[-2px] left-0 w-full h-1 bg-emerald-600 rounded-full"></div>}
-        </button>
-        <button onClick={() => setActiveTab('damages')} className={`pb-4 whitespace-nowrap font-black transition-all relative text-xs tracking-widest uppercase ${activeTab === 'damages' ? 'text-emerald-600' : 'text-slate-400'}`}>
-          GUASTI ({structDamages.filter(d=>d.status==='OPEN').length}) {activeTab === 'damages' && <div className="absolute bottom-[-2px] left-0 w-full h-1 bg-emerald-600 rounded-full"></div>}
-        </button>
-        <button onClick={() => setActiveTab('history')} className={`pb-4 whitespace-nowrap font-black transition-all relative text-xs tracking-widest uppercase ${activeTab === 'history' ? 'text-emerald-600' : 'text-slate-400'}`}>
-          CRONOLOGIA {activeTab === 'history' && <div className="absolute bottom-[-2px] left-0 w-full h-1 bg-emerald-600 rounded-full"></div>}
-        </button>
+      <div className="flex gap-6 mb-6 border-b border-slate-200 text-[9px] font-black uppercase tracking-widest">
+        <button onClick={() => setActiveTab('info')} className={`pb-2.5 relative ${activeTab === 'info' ? 'text-emerald-600' : 'text-slate-400'}`}>Operatività {activeTab === 'info' && <div className="absolute bottom-[-1px] left-0 w-full h-0.5 bg-emerald-600 rounded-full"></div>}</button>
+        <button onClick={() => setActiveTab('damages')} className={`pb-2.5 relative ${activeTab === 'damages' ? 'text-emerald-600' : 'text-slate-400'}`}>Guasti ({structDamages.filter(d=>d.status==='OPEN').length}) {activeTab === 'damages' && <div className="absolute bottom-[-1px] left-0 w-full h-0.5 bg-emerald-600 rounded-full"></div>}</button>
       </div>
-
       {activeTab === 'info' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          <ActionCard icon={<Box className="text-emerald-600" />} title="Inventario Prodotti" desc="Conteggio consumabili" onClick={() => onNewInventory('PRODUCT')} />
-          <ActionCard icon={<Shirt className="text-indigo-600" />} title="Conta Biancheria" desc="Report biancheria pulita" onClick={() => onNewInventory('LINEN')} />
-          <ActionCard icon={<ShoppingCart className="text-amber-600" />} title="Ordine Prodotti" desc="Rifornimento magazzino" onClick={() => onRequestOrder('PRODUCT')} bg="bg-amber-50" border="border-amber-200" />
-          <ActionCard icon={<Truck className="text-blue-600" />} title="Ordine Lavanderia" desc="Richiesta kit puliti" onClick={() => onRequestOrder('LINEN')} bg="bg-blue-50" border="border-blue-200" />
-          <ActionCard icon={<RefreshCw className="text-purple-600" />} title="Report Lavanderia" desc="Sporco/Rotto/Inutilizzato" onClick={onReportLinen} bg="bg-purple-50" border="border-purple-200" />
-          <ActionCard icon={<AlertTriangle className="text-red-600" />} title="Segnala Guasto" desc="Intervento manutenzione" onClick={onReportDamage} bg="bg-red-50" border="border-red-200" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ActionCard icon={<Box size={22} className="text-emerald-600" />} title="Inventario Prodotti" desc="Conteggio consumabili" onClick={() => onNewInventory('PRODUCT')} />
+          <ActionCard icon={<Shirt size={22} className="text-indigo-600" />} title="Inventario Lavanderia" desc="Conta biancheria pulita" onClick={() => onNewInventory('LINEN')} />
+          <ActionCard icon={<ShoppingCart size={22} className="text-amber-600" />} title="Ordina Prodotti" desc="Rifornimento articoli" onClick={() => onRequestOrder('PRODUCT')} bg="bg-amber-50" />
+          <ActionCard icon={<Truck size={22} className="text-blue-600" />} title="Ordina Biancheria" desc="Richiesta kit puliti" onClick={() => onRequestOrder('LINEN')} bg="bg-blue-50" />
+          <ActionCard icon={<RefreshCw size={22} className="text-purple-600" />} title="Resi Lavanderia" desc="Sporco / Anomalie" onClick={onReportLinen} bg="bg-purple-50" />
+          <ActionCard icon={<AlertTriangle size={22} className="text-red-600" />} title="Nuovo Guasto" desc="Urgente manutenzione" onClick={onReportDamage} bg="bg-red-50" />
         </div>
       )}
-
       {activeTab === 'damages' && (
-        <div className="space-y-6">
-          {structDamages.length === 0 && <div className="text-center py-20 bg-white rounded-[3rem] text-slate-300 font-bold uppercase tracking-widest">Nessuna segnalazione</div>}
+        <div className="space-y-2.5">
+          {structDamages.length === 0 && <div className="text-center py-10 bg-white rounded-xl text-slate-300 font-bold uppercase tracking-widest text-[9px] border border-slate-200">Nessuna segnalazione aperta</div>}
           {structDamages.map(d => (
-            <div key={d.id} className={`p-8 rounded-[2.5rem] border-2 bg-white ${d.status === 'RESOLVED' ? 'opacity-60 bg-slate-50 border-slate-100' : 'border-slate-50 shadow-sm'}`}>
-              <div className="flex justify-between items-start gap-6">
+            <div key={d.id} className={`p-4 rounded-xl border bg-white shadow-sm ${d.status === 'RESOLVED' ? 'opacity-50 grayscale bg-slate-50' : 'border-slate-200'}`}>
+              <div className="flex justify-between items-start gap-3">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className={`text-[8px] px-2 py-1 rounded-full font-black uppercase tracking-widest ${d.status === 'OPEN' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'}`}>{d.status}</span>
-                    <span className="text-[10px] text-slate-400 font-black">{new Date(d.date).toLocaleString()}</span>
-                  </div>
-                  <p className="font-black text-slate-800 text-xl leading-tight mb-4 uppercase tracking-tighter">{d.notes}</p>
-                  <p className="text-[10px] text-slate-400 font-bold">Segnalato da: <span className="text-slate-900 font-black">{users.find(u => u.id === d.reporterId)?.name}</span></p>
+                  <div className="flex items-center gap-1.5 mb-1.5"><span className={`text-[6px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ${d.status === 'OPEN' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>{d.status}</span><span className="text-[8px] text-slate-400 font-black">{new Date(d.date).toLocaleDateString()}</span></div>
+                  <p className="font-black text-slate-800 text-xs leading-tight uppercase tracking-tight mb-2">{d.notes}</p>
+                  <p className="text-[8px] text-slate-400 font-bold uppercase flex items-center gap-1.5">Da: <span className="text-slate-900 font-black">{users.find(u => u.id === d.reporterId)?.name}</span></p>
                 </div>
-                <div className="flex flex-col gap-2">
-                  {d.status === 'OPEN' && (currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) && (
-                    <button onClick={() => onUpdateDamageStatus(d.id, 'RESOLVED')} className="bg-emerald-600 text-white p-4 rounded-2xl shadow-lg active:scale-95"><CheckCircle2 size={24} /></button>
+                <div className="flex flex-col gap-1.5">
+                  {/* Fixed error: Wrapped onUpdateDamageStatus call in a button instead of executing it directly during render */}
+                  {d.status === 'OPEN' && (
+                    <button 
+                      onClick={() => onUpdateDamageStatus(d.id, 'RESOLVED')} 
+                      className="p-1.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded hover:bg-emerald-600 hover:text-white transition-colors"
+                      title="Segna come risolto"
+                    >
+                      <CheckCircle2 size={12}/>
+                    </button>
                   )}
-                  {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) && (
-                    <button onClick={() => onUpdateDamageStatus(d.id, 'ARCHIVED')} className="bg-slate-100 text-slate-400 p-4 rounded-2xl active:scale-95"><Trash size={24} /></button>
-                  )}
+                  <button onClick={() => onUpdateDamageStatus(d.id, 'ARCHIVED')} className="p-1.5 bg-slate-50 text-slate-400 border border-slate-200 rounded hover:text-red-500"><Trash size={12}/></button>
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
-      
-      {activeTab === 'history' && <div className="text-center py-24 bg-white rounded-[3rem] text-slate-300 font-black uppercase tracking-widest">Storico vuoto</div>}
     </div>
   );
 };
 
-const ActionCard: React.FC<{ icon: any, title: string, desc: string, onClick: () => void, bg?: string, border?: string }> = ({ icon, title, desc, onClick, bg = "bg-white", border = "border-slate-100" }) => (
-  <div onClick={onClick} className={`cursor-pointer ${bg} p-10 rounded-[2.5rem] border-2 ${border} hover:shadow-xl transition-all flex flex-col items-center text-center gap-6 group active:scale-95`}>
-    <div className="p-6 bg-white rounded-[2rem] shadow-md group-hover:scale-110 transition-transform">{React.cloneElement(icon, { size: 48 })}</div>
-    <div><h3 className="font-black text-slate-800 text-sm uppercase tracking-widest mb-1">{title}</h3><p className="text-xs text-slate-400 font-medium">{desc}</p></div>
+const ActionCard: React.FC<{ icon: any, title: string, desc: string, onClick: () => void, bg?: string }> = ({ icon, title, desc, onClick, bg = "bg-white" }) => (
+  <div onClick={onClick} className={`cursor-pointer ${bg} p-4 rounded-xl border border-slate-200 hover:shadow shadow-sm transition-all flex flex-col items-center text-center gap-3 group active:scale-95`}>
+    <div className="p-3 bg-white rounded-lg shadow-sm group-hover:scale-105 transition-transform border border-slate-50">{icon}</div>
+    <div><h3 className="font-black text-slate-800 text-[10px] uppercase tracking-widest mb-0.5 leading-none">{title}</h3><p className="text-[9px] text-slate-400 font-medium leading-tight">{desc}</p></div>
   </div>
 );
 
+// --- NewOrderView ---
 const NewOrderView: React.FC<{ structureId: string, currentUser: User, products: Product[], type: ItemType, onSave: (o: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, type, onSave, onCancel }) => {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [signer, setSigner] = useState(currentUser.name);
   const filtered = products.filter(p => p.type === type);
+  const [signer, setSigner] = useState(currentUser.name);
 
   return (
-    <div className="max-w-3xl mx-auto bg-white p-12 rounded-[3rem] shadow-2xl animate-fade-in">
-      <h2 className="text-4xl font-black text-slate-900 mb-2 uppercase tracking-tighter">Nuovo Ordine {type === 'LINEN' ? 'Lavanderia' : 'Prodotti'}</h2>
-      <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mb-10">Compila la richiesta di rifornimento</p>
-      
-      <div className="space-y-3 mb-12 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+    <div className="max-w-xl mx-auto bg-white p-6 rounded-xl shadow-xl border border-slate-200 animate-fade-in">
+      <h2 className="text-lg font-black text-slate-900 mb-1 uppercase tracking-tighter leading-none">Nuovo Ordine {type === 'LINEN' ? 'Lavanderia' : 'Prodotti'}</h2>
+      <p className="text-slate-400 font-bold uppercase text-[7px] tracking-[0.2em] mb-5">Elenco completo catalogo attivo</p>
+      <div className="space-y-1.5 mb-6 max-h-[300px] overflow-y-auto pr-1.5 custom-scrollbar text-[11px]">
         {filtered.map(p => (
-          <div key={p.id} className="flex justify-between items-center p-5 bg-slate-50 rounded-2xl border-2 border-transparent hover:border-emerald-500 transition-all">
-            <span className="font-black text-slate-700 uppercase text-lg tracking-tighter">{p.name} <span className="text-[10px] text-slate-400 block font-bold">{p.unit}</span></span>
-            <div className="flex items-center gap-4">
-              <button onClick={() => setQuantities({...quantities, [p.id]: Math.max(0, (quantities[p.id]||0) - 1)})} className="p-2 bg-white rounded-lg shadow-sm"><Minus size={18} /></button>
-              <span className="font-black text-2xl w-10 text-center">{quantities[p.id] || 0}</span>
-              <button onClick={() => setQuantities({...quantities, [p.id]: (quantities[p.id]||0) + 1})} className="p-2 bg-white rounded-lg shadow-sm"><Plus size={18} /></button>
+          <div key={p.id} className="flex justify-between items-center p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+            <span className="font-black text-slate-700 uppercase tracking-tight">{p.name} <span className="text-[7px] text-slate-400 block font-bold italic">{p.unit}</span></span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setQuantities({...quantities, [p.id]: Math.max(0, (quantities[p.id]||0) - 1)})} className="p-1 bg-white rounded border border-slate-200"><Minus size={11} /></button>
+              <span className="font-black w-6 text-center text-slate-900">{quantities[p.id] || 0}</span>
+              <button onClick={() => setQuantities({...quantities, [p.id]: (quantities[p.id]||0) + 1})} className="p-1 bg-white rounded border border-slate-200"><Plus size={11} /></button>
             </div>
           </div>
         ))}
       </div>
-
-      <div className="mb-10 bg-slate-900 p-8 rounded-[2rem]">
-        <label className="block text-[8px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-4">Convalida con Firma (Digita Nome)</label>
-        <input className="w-full bg-white/5 border-2 border-white/10 p-4 rounded-2xl focus:border-emerald-500 outline-none font-black text-white text-2xl" value={signer} onChange={e => setSigner(e.target.value)} />
-      </div>
-
-      <div className="flex gap-4">
-        <button 
-          onClick={() => onSave({ structureId, requesterId: currentUser.id, dateCreated: new Date().toISOString(), items: (Object.entries(quantities) as [string, number][]).filter(([_, q]) => q > 0).map(([pid, q]) => ({ productId: pid, quantity: q })), status: OrderStatus.PENDING, type, signatureUrl: signer })} 
-          className="flex-1 bg-emerald-600 text-white py-6 rounded-2xl font-black shadow-xl uppercase tracking-widest active:scale-95 transition-all text-xs"
-        >
-          INVIA RICHIESTA
-        </button>
-        <button onClick={onCancel} className="px-10 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs">Annulla</button>
-      </div>
+      <div className="mb-6 bg-slate-900 p-4 rounded-lg"><label className="block text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1.5">Firma Operatore</label><input className="w-full bg-white/5 border border-white/10 p-2 rounded focus:border-emerald-500 outline-none font-black text-white text-base tracking-tight" value={signer} onChange={e => setSigner(e.target.value)} /></div>
+      <div className="flex gap-2"><button onClick={() => { const items = Object.entries(quantities).filter(([_,q])=>q>0).map(([pid, q]) => ({ productId: pid, quantity: q })); onSave({ structureId, requesterId: currentUser.id, dateCreated: new Date().toISOString(), items, status: OrderStatus.PENDING, type, signatureUrl: signer }); }} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-black text-[9px] uppercase tracking-widest shadow active:scale-95">CONFERMA E INVIA</button><button onClick={onCancel} className="px-6 bg-slate-100 text-slate-500 rounded-lg font-black text-[9px] uppercase tracking-widest border border-slate-200 active:scale-95">CHIUDI</button></div>
     </div>
   );
 };
 
+// --- NewInventoryView ---
 const NewInventoryView: React.FC<{ structureId: string, currentUser: User, products: Product[], type: ItemType, onSave: (i: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, type, onSave, onCancel }) => {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [signer, setSigner] = useState(currentUser.name);
   const filtered = products.filter(p => p.type === type);
 
   return (
-    <div className="max-w-3xl mx-auto bg-white p-12 rounded-[3rem] shadow-2xl animate-fade-in">
-      <h2 className="text-4xl font-black mb-10 text-slate-900 tracking-tighter uppercase tracking-widest">Inventario {type === 'LINEN' ? 'Biancheria' : 'Prodotti'}</h2>
-      <div className="space-y-2 mb-10 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+    <div className="max-w-xl mx-auto bg-white p-6 rounded-xl shadow-xl animate-fade-in border border-slate-200">
+      <h2 className="text-lg font-black text-slate-900 mb-6 uppercase tracking-widest leading-none text-center">Inventario {type === 'LINEN' ? 'Lavanderia' : 'Prodotti'}</h2>
+      <div className="space-y-1.5 mb-6 max-h-[300px] overflow-y-auto pr-1.5 custom-scrollbar text-[11px]">
         {filtered.map(p => (
-          <div key={p.id} className="flex justify-between items-center p-5 border-2 border-slate-50 rounded-2xl bg-slate-50/50 hover:border-emerald-500 transition-all">
-            <span className="font-black text-slate-700 uppercase text-lg tracking-tighter">{p.name} <span className="text-[10px] text-slate-300 block font-bold">{p.unit}</span></span>
-            <input type="number" className="w-24 border-2 border-slate-200 rounded-xl p-4 text-center font-black text-xl outline-none focus:border-emerald-500" placeholder="0" onChange={e => setQuantities({...quantities, [p.id]: Math.max(0, parseInt(e.target.value)||0)})} />
+          <div key={p.id} className="flex justify-between items-center p-2.5 border border-slate-100 rounded-lg bg-slate-50/50">
+            <span className="font-black text-slate-700 uppercase tracking-tight">{p.name} <span className="text-[7px] text-slate-300 block font-bold">{p.unit}</span></span>
+            <input type="number" className="w-14 border border-slate-200 rounded p-1.5 text-center font-black text-[11px] outline-none focus:border-emerald-500 bg-white" placeholder="0" onChange={e => setQuantities({...quantities, [p.id]: Math.max(0, parseInt(e.target.value)||0)})} />
           </div>
         ))}
       </div>
-      
-      <div className="mb-10 bg-slate-100 p-8 rounded-[2rem] border-2 border-slate-200">
-        <label className="block text-[8px] font-black text-slate-400 uppercase mb-4 tracking-widest">Firma di Convalida (Digita Nome)</label>
-        <input className="w-full border-2 border-white p-4 rounded-2xl focus:border-emerald-500 bg-white font-black text-2xl" value={signer} onChange={e => setSigner(e.target.value)} />
-      </div>
-
-      <div className="flex gap-4">
-        <button onClick={() => onSave({ structureId, operatorId: currentUser.id, date: new Date().toISOString(), items: (Object.entries(quantities) as [string, number][]).filter(([_, q]) => q > 0).map(([pid, q]) => ({ productId: pid, quantity: q })), type, signatureUrl: signer })} className="flex-1 bg-emerald-600 text-white py-6 rounded-2xl font-black shadow-xl uppercase tracking-widest text-xs active:scale-95">SALVA INVENTARIO</button>
-        <button onClick={onCancel} className="px-10 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs">Annulla</button>
-      </div>
+      <div className="mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200"><label className="block text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Convalida Nome</label><input className="w-full border border-slate-200 p-2 rounded focus:border-emerald-500 bg-white font-black text-base outline-none shadow-sm" value={signer} onChange={e => setSigner(e.target.value)} /></div>
+      <div className="flex gap-2"><button onClick={() => { const items = Object.entries(quantities).filter(([_,q])=>q>0).map(([pid, q]) => ({ productId: pid, quantity: q })); onSave({ structureId, operatorId: currentUser.id, date: new Date().toISOString(), items, type, signatureUrl: signer }); }} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-black text-[9px] uppercase tracking-widest shadow active:scale-95 transition-all">SALVA DATI</button><button onClick={onCancel} className="px-7 bg-slate-100 text-slate-500 rounded-lg font-black text-[9px] uppercase tracking-widest border border-slate-200">ANNULLA</button></div>
     </div>
   );
 };
 
-const NewDamageReportView: React.FC<{ 
-  structureId: string, currentUser: User, 
-  onSave: (r: any) => void, onCancel: () => void 
-}> = ({ structureId, currentUser, onSave, onCancel }) => {
+// --- NewDamageReportView ---
+const NewDamageReportView: React.FC<{ structureId: string, currentUser: User, onSave: (r: any) => void, onCancel: () => void }> = ({ structureId, currentUser, onSave, onCancel }) => {
   const [notes, setNotes] = useState('');
-  
   return (
-    <div className="max-w-3xl mx-auto bg-white p-12 rounded-[3rem] shadow-2xl animate-fade-in">
-      <h2 className="text-4xl font-black text-slate-900 mb-10 uppercase tracking-tighter">Segnala Guasto</h2>
-      <div className="space-y-6 mb-12">
-        <textarea 
-          className="w-full border-2 border-slate-50 p-6 rounded-2xl focus:border-red-500 bg-slate-50 transition-all outline-none h-48 font-bold text-lg uppercase tracking-tighter" 
-          placeholder="Descrivi il guasto o il danno..."
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-        />
-      </div>
-
-      <div className="flex gap-4">
-        <button 
-          onClick={() => onSave({ structureId, reporterId: currentUser.id, date: new Date().toISOString(), items: [], notes, status: 'OPEN' })} 
-          className="flex-1 bg-red-600 text-white py-6 rounded-2xl font-black shadow-xl uppercase tracking-widest text-xs active:scale-95"
-        >
-          INVIA SEGNALAZIONE
-        </button>
-        <button onClick={onCancel} className="px-12 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs">Annulla</button>
-      </div>
+    <div className="max-w-lg mx-auto bg-white p-6 rounded-xl shadow-xl border border-slate-200 animate-fade-in">
+      <h2 className="text-lg font-black text-slate-900 mb-6 uppercase tracking-tighter">Segnalazione Malfunzionamento</h2>
+      <textarea className="w-full border border-slate-200 p-3 rounded-lg focus:border-red-500 bg-slate-50 outline-none h-28 font-bold text-[11px] uppercase leading-tight mb-6" placeholder="Dettagli del guasto..." value={notes} onChange={e => setNotes(e.target.value)} />
+      <div className="flex gap-2"><button onClick={() => onSave({ structureId, reporterId: currentUser.id, date: new Date().toISOString(), items: [], notes, status: 'OPEN' })} className="flex-1 bg-red-600 text-white py-3 rounded-lg font-black uppercase tracking-widest text-[9px] shadow active:scale-95 transition-all">INVIA REPORT</button><button onClick={onCancel} className="px-7 bg-slate-100 text-slate-500 rounded-lg font-black text-[9px] uppercase tracking-widest border border-slate-200 active:scale-95">CHIUDI</button></div>
     </div>
   );
 };
 
+// --- ManageOrdersView ---
 const ManageOrdersView: React.FC<{ 
-  orders: Order[], structures: Structure[], products: Product[], 
-  users: User[], currentUser: User, targetType: ItemType, 
-  onUpdateOrder: (o: Order) => void, onDeleteOrder: (id: string) => void 
+  orders: Order[], structures: Structure[], products: Product[], users: User[], currentUser: User, targetType: ItemType, 
+  onUpdateOrder: (o: Order, s: OrderStatus) => void, onDeleteOrder: (id: string) => void 
 }> = ({ orders, structures, products, users, targetType, onUpdateOrder, onDeleteOrder }) => {
   const filtered = orders.filter(o => o.type === targetType).sort((a,b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
-
   return (
-    <div className="max-w-5xl mx-auto animate-fade-in">
-      <h2 className="text-4xl font-black text-slate-900 mb-10 uppercase tracking-tighter">Ordini {targetType === 'LINEN' ? 'Lavanderia' : 'Prodotti'}</h2>
-      <div className="space-y-6">
+    <div className="max-w-4xl mx-auto animate-fade-in">
+      <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter">Registro Ordini {targetType === 'LINEN' ? 'Lavanderia' : 'Prodotti'}</h2>
+      <div className="space-y-3">
         {filtered.map(o => (
-          <div key={o.id} className={`bg-white p-8 rounded-[3rem] border-2 shadow-sm ${o.status === OrderStatus.PENDING ? 'border-amber-500' : 'border-emerald-500'}`}>
-            <div className="flex flex-col md:flex-row justify-between items-center gap-8">
-              <div className="flex-1">
-                <h3 className="font-black text-2xl text-slate-900 uppercase tracking-tighter mb-2">{structures.find(s => s.id === o.structureId)?.name}</h3>
-                <p className="text-[10px] text-slate-400 font-bold mb-6 tracking-widest">
-                  Richiesto da {users.find(u => u.id === o.requesterId)?.name} - {new Date(o.dateCreated).toLocaleDateString()}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {o.items.map(i => (
-                    <div key={i.productId} className="bg-slate-50 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">
-                      {products.find(p=>p.id===i.productId)?.name}: {i.quantity}
-                    </div>
-                  ))}
-                </div>
+          <div key={o.id} className={`bg-white p-4 rounded-xl border shadow-sm ${o.status === OrderStatus.PENDING ? 'border-amber-300' : 'border-emerald-300'}`}>
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex-1"><h3 className="font-black text-base text-slate-900 uppercase tracking-tighter leading-none mb-1">{structures.find(s => s.id === o.structureId)?.name}</h3><p className="text-[7px] text-slate-400 font-bold mb-3 tracking-widest uppercase">Da: {users.find(u => u.id === o.requesterId)?.name} - {new Date(o.dateCreated).toLocaleDateString()}</p>
+                <div className="flex flex-wrap gap-1">{o.items.map(i => (<div key={i.productId} className="bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded text-[7px] font-black uppercase text-slate-600">{products.find(p=>p.id===i.productId)?.name}: <span className="text-emerald-600">{i.quantity}</span></div>))}</div>
               </div>
-              
-              <div className="flex gap-4">
+              <div className="flex gap-1.5">
                 {o.status === OrderStatus.PENDING && (
-                  <>
-                    <button onClick={() => onUpdateOrder({...o, status: OrderStatus.SENT, dateSent: new Date().toISOString()})} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">CONVALIDA</button>
-                    <button onClick={() => onDeleteOrder(o.id)} className="p-4 bg-red-50 text-red-600 rounded-2xl"><Trash size={20} /></button>
-                  </>
+                  <><button onClick={() => onUpdateOrder(o, OrderStatus.SENT)} className="bg-emerald-600 text-white px-3 py-2 rounded font-black text-[8px] uppercase tracking-widest active:scale-95 transition-all">CONVALIDA</button>
+                  <button onClick={() => onDeleteOrder(o.id)} className="p-2 bg-red-50 text-red-600 rounded active:scale-95 transition-all"><Trash size={13} /></button></>
                 )}
-                {o.status === OrderStatus.SENT && <span className="bg-emerald-100 text-emerald-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">INVIATO</span>}
+                {o.status === OrderStatus.SENT && <span className="bg-emerald-50 text-emerald-600 px-3 py-2 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1.5"><CheckCircle2 size={12}/> INVIATO</span>}
               </div>
             </div>
           </div>
         ))}
-        {filtered.length === 0 && <div className="text-center py-20 text-slate-300 font-black uppercase tracking-widest">Nessun ordine presente</div>}
+        {filtered.length === 0 && <div className="text-center py-12 text-slate-300 font-black uppercase tracking-widest text-[8px] border border-dashed border-slate-200 rounded-xl bg-white shadow-sm">Nessun ordine presente</div>}
       </div>
     </div>
   );
 };
 
+// --- NewUnusedLinenView ---
 const NewUnusedLinenView: React.FC<{ structureId: string, currentUser: User, products: Product[], onSave: (r: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, onSave, onCancel }) => {
   const linen = products.filter(p => p.type === 'LINEN');
   const [dirty, setDirty] = useState<Record<string, number>>({});
@@ -702,89 +670,81 @@ const NewUnusedLinenView: React.FC<{ structureId: string, currentUser: User, pro
   const [signer, setSigner] = useState(currentUser.name);
 
   return (
-    <div className="max-w-4xl mx-auto bg-white p-12 rounded-[3rem] shadow-2xl animate-fade-in">
-      <h2 className="text-4xl font-black text-slate-900 mb-10 uppercase tracking-tighter">Report Lavanderia</h2>
-      <div className="space-y-4 mb-12 max-h-[500px] overflow-y-auto pr-4 custom-scrollbar">
+    <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-xl animate-fade-in border border-slate-200">
+      <h2 className="text-lg font-black text-slate-900 mb-6 uppercase tracking-widest leading-none text-center">Resoconto Carichi</h2>
+      <div className="space-y-1.5 mb-6 max-h-[350px] overflow-y-auto pr-1 text-[11px] custom-scrollbar">
         {linen.map(p => (
-          <div key={p.id} className="p-8 border-2 border-slate-50 rounded-[2.5rem] bg-slate-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-            <span className="font-black text-slate-800 text-lg uppercase tracking-tighter">{p.name}</span>
-            <div className="flex gap-4">
-              <div className="text-center">
-                <label className="text-[8px] font-black uppercase tracking-widest block mb-2 text-red-600">Sporca</label>
-                <input type="number" className="w-16 border-2 border-slate-200 rounded-xl p-2 text-center font-black" placeholder="0" onChange={e => setDirty({...dirty, [p.id]: parseInt(e.target.value)||0})} />
-              </div>
-              <div className="text-center">
-                <label className="text-[8px] font-black uppercase tracking-widest block mb-2 text-orange-600">Rotta</label>
-                <input type="number" className="w-16 border-2 border-slate-200 rounded-xl p-2 text-center font-black" placeholder="0" onChange={e => setBroken({...broken, [p.id]: parseInt(e.target.value)||0})} />
-              </div>
-              <div className="text-center">
-                <label className="text-[8px] font-black uppercase tracking-widest block mb-2 text-blue-600">Inutil.</label>
-                <input type="number" className="w-16 border-2 border-slate-200 rounded-xl p-2 text-center font-black" placeholder="0" onChange={e => setUnused({...unused, [p.id]: parseInt(e.target.value)||0})} />
-              </div>
+          <div key={p.id} className="p-3.5 border border-slate-100 rounded-lg bg-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm hover:border-emerald-300 transition-all">
+            <span className="font-black text-slate-800 uppercase tracking-tighter">{p.name}</span>
+            <div className="flex gap-1.5 text-center">
+              <div><label className="text-[6px] font-black uppercase block text-red-500 mb-0.5">Sporca</label><input type="number" className="w-9 border border-slate-200 rounded p-1 text-center font-black bg-white" placeholder="0" onChange={e => setDirty({...dirty, [p.id]: parseInt(e.target.value)||0})} /></div>
+              <div><label className="text-[6px] font-black uppercase block text-orange-500 mb-0.5">Rotta</label><input type="number" className="w-9 border border-slate-200 rounded p-1 text-center font-black bg-white" placeholder="0" onChange={e => setBroken({...broken, [p.id]: parseInt(e.target.value)||0})} /></div>
+              <div><label className="text-[6px] font-black uppercase block text-blue-500 mb-0.5">Intatta</label><input type="number" className="w-9 border border-slate-200 rounded p-1 text-center font-black bg-white" placeholder="0" onChange={e => setUnused({...unused, [p.id]: parseInt(e.target.value)||0})} /></div>
             </div>
           </div>
         ))}
       </div>
-
-      <div className="mb-10 bg-slate-900 p-8 rounded-[2.5rem]">
-        <label className="block text-[8px] font-black text-emerald-400 uppercase mb-4 tracking-widest">Firma Operatore (Digita Nome)</label>
-        <input className="w-full bg-white/5 border-2 border-white/10 p-4 rounded-2xl font-black text-white text-3xl tracking-tighter" value={signer} onChange={e => setSigner(e.target.value)} />
-      </div>
-
-      <div className="flex gap-4">
-        <button onClick={() => onSave({ structureId, operatorId: currentUser.id, date: new Date().toISOString(), dirtyItems: Object.entries(dirty).filter(([_,q])=>q>0).map(([p,q])=>({productId:p, quantity:q})), unusedItems: Object.entries(unused).filter(([_,q])=>q>0).map(([p,q])=>({productId:p, quantity:q})), brokenItems: Object.entries(broken).filter(([_,q])=>q>0).map(([p,q])=>({productId:p, quantity:q})), signatureUrl: signer })} className="flex-1 bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95">SALVA REPORT</button>
-        <button onClick={onCancel} className="px-12 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs">Annulla</button>
-      </div>
+      <div className="mb-6 bg-slate-900 p-4 rounded-lg"><label className="block text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1">Firma Operatore</label><input className="w-full bg-white/5 border border-white/10 p-2 rounded focus:border-emerald-500 outline-none font-black text-white text-base tracking-tight" value={signer} onChange={e => setSigner(e.target.value)} /></div>
+      <div className="flex gap-2"><button onClick={() => { const d = Object.entries(dirty).map(([p,q])=>({productId:p, quantity:q})); const u = Object.entries(unused).map(([p,q])=>({productId:p, quantity:q})); const b = Object.entries(broken).map(([p,q])=>({productId:p, quantity:q})); onSave({ structureId, operatorId: currentUser.id, date: new Date().toISOString(), dirtyItems: d, unusedItems: u, brokenItems: b, signatureUrl: signer }); }} className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-black uppercase tracking-widest text-[9px] active:scale-95 transition-all">SALVA REPORT</button><button onClick={onCancel} className="px-8 bg-slate-100 text-slate-500 rounded-lg font-black uppercase tracking-widest text-[9px] active:scale-95 border border-slate-200">CHIUDI</button></div>
     </div>
   );
 };
 
-const AdminLinenSummaryView: React.FC<{ reports: UnusedLinenReport[], products: Product[], structures: Structure[], users: User[], onBack: () => void }> = ({ reports, products, onBack }) => {
-  return (
-    <div className="max-w-6xl mx-auto animate-fade-in">
-      <button onClick={onBack} className="text-slate-400 font-black mb-8 uppercase text-[10px] tracking-widest flex items-center gap-2"><X size={16}/> Chiudi Report</button>
-      <h2 className="text-4xl font-black text-slate-900 mb-10 uppercase tracking-tighter">Analisi Lavanderia</h2>
-      <div className="bg-white rounded-[4rem] shadow-xl overflow-hidden p-10 border border-slate-100">
-        <p className="text-slate-400 font-bold uppercase text-center text-xs tracking-[0.2em] mb-10">Riepilogo generale carichi lavanderia</p>
-        <div className="text-center py-20 text-slate-300 font-black uppercase tracking-widest border-4 border-dashed border-slate-50 rounded-[3rem]">Analisi Dati in tempo reale</div>
-      </div>
-    </div>
-  );
-};
+// --- AdminLinenSummaryView ---
+const AdminLinenSummaryView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+  <div className="max-w-4xl mx-auto animate-fade-in text-center">
+    <button onClick={onBack} className="text-slate-400 font-black mb-5 uppercase text-[8px] tracking-widest flex items-center gap-1 border border-slate-200 p-1 bg-white rounded shadow-sm hover:text-emerald-600"><X size={12}/> CHIUDI LOG</button>
+    <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter">Archivio Report Lavanderia</h2>
+    <div className="bg-white rounded-xl shadow p-8 border border-slate-200 text-slate-300 font-black uppercase tracking-widest text-[9px] bg-slate-50/20 italic">Storico attività amministrativa non ancora disponibile</div>
+  </div>
+);
 
+// --- SupplierDashboardView ---
 const SupplierDashboardView: React.FC<{ orders: Order[], structures: Structure[], products: Product[], currentUser: User, onOrderDelivered: () => void }> = ({ orders, structures, products, currentUser, onOrderDelivered }) => {
   const supplierOrders = orders.filter(o => o.status === OrderStatus.SENT && o.type === 'PRODUCT').sort((a,b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
-  
   return (
-    <div className="max-w-6xl mx-auto animate-fade-in">
-      <div className="bg-slate-900 text-white p-12 rounded-[4rem] mb-12 flex flex-col justify-center border-b-[2rem] border-emerald-500">
-        <h2 className="text-6xl font-black tracking-tighter uppercase">Consegne</h2>
-        <p className="text-emerald-400 font-black text-2xl uppercase tracking-widest opacity-80">Fornitore: {currentUser.name}</p>
+    <div className="max-w-4xl mx-auto animate-fade-in">
+      <div className="bg-slate-900 text-white p-6 rounded-xl mb-6 border-b-4 border-emerald-500 shadow-xl">
+        <h2 className="text-2xl font-black tracking-tighter uppercase leading-none">Ordini in Consegna</h2>
+        <p className="text-emerald-400 font-black text-[10px] uppercase tracking-widest opacity-80 mt-1">Fornitore: {currentUser.name}</p>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {supplierOrders.map(o => (
-          <div key={o.id} className="bg-white p-10 rounded-[3rem] shadow-xl border border-slate-50">
-            <h3 className="text-3xl font-black text-slate-900 tracking-tighter uppercase mb-2">{structures.find(s => s.id === o.structureId)?.name}</h3>
-            <p className="text-emerald-600 font-bold text-xs mb-8 flex items-center gap-2"><MapPin size={16} /> {structures.find(s => s.id === o.structureId)?.address}</p>
-            
-            <div className="bg-slate-50 p-6 rounded-2xl mb-8 space-y-2">
+          <div key={o.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-black text-slate-900 tracking-tighter uppercase mb-0.5">{structures.find(s => s.id === o.structureId)?.name}</h3>
+            <p className="text-emerald-600 font-bold text-[8px] mb-4 flex items-center gap-1.5 uppercase tracking-widest opacity-80"><MapPin size={11} /> {structures.find(s => s.id === o.structureId)?.address}</p>
+            <div className="bg-slate-50 p-3 rounded-lg mb-4 space-y-1 text-[10px] font-black uppercase border border-slate-100">
               {o.items.map(i => (
-                <div key={i.productId} className="flex justify-between items-center text-xs font-black uppercase tracking-widest text-slate-500">
-                  <span>{products.find(p=>p.id===i.productId)?.name}</span>
-                  <span className="text-slate-900">x{i.quantity}</span>
+                <div key={i.productId} className="flex justify-between items-center text-slate-500">
+                  <span>{products.find(p=>p.id===i.productId)?.name}</span><span className="text-slate-900 bg-white px-1.5 py-0.5 rounded border border-slate-100">x{i.quantity}</span>
                 </div>
               ))}
             </div>
-            
             <button onClick={async () => {
               await supabase.from('orders').update({ status: OrderStatus.DELIVERED }).eq('id', o.id);
               onOrderDelivered();
-            }} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-lg hover:bg-emerald-600 transition-all active:scale-95 uppercase tracking-widest text-[10px]">Consegna Completata</button>
+            }} className="w-full bg-slate-900 text-white py-3 rounded-lg font-black shadow-lg hover:bg-emerald-600 active:scale-95 transition-all uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5"><Check size={14}/> CONSEGNA COMPLETATA</button>
           </div>
         ))}
-        {supplierOrders.length === 0 && <div className="col-span-full text-center py-32 text-slate-300 font-black uppercase tracking-widest text-3xl italic">Nessun ordine pendente</div>}
+        {supplierOrders.length === 0 && <div className="col-span-full text-center py-16 text-slate-300 font-black uppercase tracking-widest text-xs border border-dashed border-slate-200 rounded-xl bg-white italic">Nessun ordine da consegnare al momento</div>}
       </div>
+    </div>
+  );
+};
+
+// --- AddStructureView ---
+const AddStructureView: React.FC<{ onSave: (s: any) => void, onCancel: () => void }> = ({ onSave, onCancel }) => {
+  const [form, setForm] = useState({ name: '', address: '', accessCodes: '' });
+  return (
+    <div className="max-w-lg mx-auto bg-white p-6 rounded-xl shadow-xl border border-slate-200 animate-fade-in text-[11px]">
+      <h2 className="text-lg font-black text-slate-900 mb-0.5 uppercase tracking-tighter">Nuova Proprietà</h2>
+      <p className="text-slate-400 mb-6 font-medium uppercase text-[8px] tracking-widest">Registra nuova anagrafica</p>
+      <div className="space-y-4 mb-6">
+        <div className="space-y-1"><label className="text-[7px] font-black uppercase text-slate-400 px-1 tracking-widest">Nome Struttura</label><input className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50 font-bold outline-none focus:border-emerald-500" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div>
+        <div className="space-y-1"><label className="text-[7px] font-black uppercase text-slate-400 px-1 tracking-widest">Indirizzo</label><input className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50 font-bold outline-none focus:border-emerald-500" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /></div>
+        <div className="space-y-1"><label className="text-[7px] font-black uppercase text-slate-400 px-1 tracking-widest">Accessi</label><textarea className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50 font-bold outline-none h-20" value={form.accessCodes} onChange={e => setForm({...form, accessCodes: e.target.value})} placeholder="Es: Keybox 1234" /></div>
+      </div>
+      <div className="flex gap-2"><button onClick={() => onSave(form)} className="flex-1 bg-slate-900 text-white py-3 rounded-lg font-black shadow active:scale-95 transition-all uppercase tracking-widest text-[9px]">REGISTRA</button><button onClick={onCancel} className="px-7 bg-slate-100 text-slate-500 rounded-lg font-black hover:bg-slate-200 transition-all uppercase tracking-widest text-[9px]">ANNULLA</button></div>
     </div>
   );
 };
