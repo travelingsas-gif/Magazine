@@ -16,9 +16,12 @@ import { supabase } from './supabaseClient';
 const mapUser = (u: any): User => ({ id: u.id, name: u.name, email: u.email, role: u.role as Role, password: u.password });
 const mapStructure = (s: any): Structure => ({ id: s.id, name: s.name, address: s.address, accessCodes: s.access_codes, imageUrl: s.image_url });
 const mapProduct = (p: any): Product => ({ id: p.id, name: p.name, category: p.category, unit: p.unit, type: p.type });
+// Fix: Map properties to correct camelCase keys as defined in InventoryReport type
 const mapInventory = (i: any): InventoryReport => ({ id: i.id, structureId: i.structure_id, operatorId: i.operator_id, date: i.date, items: i.items, signatureUrl: i.signature_url, photoUrl: i.photo_url, notes: i.notes, type: i.type });
 const mapOrder = (o: any): Order => ({ id: o.id, structureId: o.structure_id, requesterId: o.requester_id, dateCreated: o.date_created, dateSent: o.date_sent, sentToEmail: o.sent_to_email, items: o.items, status: o.status, type: o.type });
+// Fix: Map properties to correct camelCase keys as defined in DamageReport type
 const mapDamageReport = (d: any): DamageReport => ({ id: d.id, structureId: d.structure_id, reporterId: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status });
+// Fix: Map properties to correct camelCase keys as defined in UnusedLinenReport type
 const mapUnusedLinen = (l: any): UnusedLinenReport => ({ id: l.id, structureId: l.structure_id, operatorId: l.operator_id, date: l.date, dirtyItems: l.dirty_items, unusedItems: l.unused_items, notes: l.notes });
 
 const App: React.FC = () => {
@@ -58,12 +61,9 @@ const App: React.FC = () => {
        setProducts(resProds.data.map(mapProduct));
        if (resStructs.error) throw resStructs.error;
        setStructures(resStructs.data.map(mapStructure));
-       if (resInv.error) throw resInv.error;
-       setInventories(resInv.data.map(mapInventory));
-       if (resOrd.error) throw resOrd.error;
-       setOrders(resOrd.data.map(mapOrder));
-       if (resDmg.error) throw resDmg.error;
-       setDamageReports(resDmg.data.map(mapDamageReport));
+       if (resInv.data) setInventories(resInv.data.map(mapInventory));
+       if (resOrd.data) setOrders(resOrd.data.map(mapOrder));
+       if (resDmg.data) setDamageReports(resDmg.data.map(mapDamageReport));
        if (resLin.data) setUnusedLinenReports(resLin.data.map(mapUnusedLinen));
 
     } catch (err: any) {
@@ -105,6 +105,17 @@ const App: React.FC = () => {
                   role={currentUser.role}
                   pendingOrdersCount={getUnreadOrdersCount()}
                   onNavigateToOrders={() => setCurrentView('orders-products')}
+                  onAddStructure={() => setCurrentView('structure-add')}
+               />;
+      case 'structure-add':
+        return <AddStructureView 
+                  onSave={async (s) => {
+                    const { data, error } = await supabase.from('structures').insert({
+                      name: s.name, address: s.address, access_codes: s.accessCodes
+                    }).select().single();
+                    if (!error && data) { setStructures([...structures, mapStructure(data)]); setCurrentView('dashboard'); }
+                  }}
+                  onCancel={() => setCurrentView('dashboard')}
                />;
       case 'structure-detail':
         return <StructureDetailView 
@@ -131,11 +142,23 @@ const App: React.FC = () => {
                   structureId={selectedStructureId!} currentUser={currentUser} products={products} type={activeItemType}
                   onSave={async (inv) => {
                     const { data, error } = await supabase.from('inventories').insert({
-                       id: inv.id, structure_id: inv.structureId, operator_id: inv.operatorId,
+                       structure_id: inv.structureId, operator_id: inv.operatorId,
                        date: inv.date, items: inv.items, signature_url: inv.signatureUrl, photo_url: inv.photoUrl,
                        notes: inv.notes, type: inv.type
                     }).select().single();
                     if(!error && data) { setInventories([...inventories, mapInventory(data)]); setCurrentView('structure-detail'); }
+                  }}
+                  onCancel={() => setCurrentView('structure-detail')}
+               />;
+      case 'order-new':
+        return <NewOrderView 
+                  structureId={selectedStructureId!} currentUser={currentUser} products={products} type={activeItemType}
+                  onSave={async (ord) => {
+                    const { data, error } = await supabase.from('orders').insert({
+                      structure_id: ord.structureId, requester_id: ord.requesterId,
+                      date_created: ord.dateCreated, items: ord.items, status: ord.status, type: ord.type
+                    }).select().single();
+                    if (!error && data) { setOrders([...orders, mapOrder(data)]); setCurrentView('structure-detail'); }
                   }}
                   onCancel={() => setCurrentView('structure-detail')}
                />;
@@ -144,7 +167,7 @@ const App: React.FC = () => {
                 structureId={selectedStructureId!} currentUser={currentUser} products={products}
                 onSave={async (rep) => {
                   const { data, error } = await supabase.from('damage_reports').insert({
-                     id: rep.id, structure_id: rep.structureId, reporter_id: rep.reporterId,
+                     structure_id: rep.structureId, reporter_id: rep.reporterId,
                      date: rep.date, items: rep.items, notes: rep.notes, status: rep.status
                   }).select().single();
                   if(!error && data) { setDamageReports([...damageReports, mapDamageReport(data)]); setCurrentView('structure-detail'); }
@@ -156,7 +179,7 @@ const App: React.FC = () => {
                 structureId={selectedStructureId!} currentUser={currentUser} products={products}
                 onSave={async (rep) => {
                   const { data, error } = await supabase.from('unused_linen_reports').insert({
-                    id: rep.id, structure_id: rep.structureId, operator_id: rep.operatorId,
+                    structure_id: rep.structureId, operator_id: rep.operatorId,
                     date: rep.date, dirty_items: rep.dirtyItems, unused_items: rep.unusedItems, notes: rep.notes
                   }).select().single();
                   if (!error && data) { setUnusedLinenReports([...unusedLinenReports, mapUnusedLinen(data)]); setCurrentView('structure-detail'); }
@@ -170,7 +193,7 @@ const App: React.FC = () => {
       case 'orders-linen': 
         return <ManageOrdersView orders={orders} structures={structures} products={products} users={users} currentUser={currentUser} targetType="LINEN" onUpdateOrder={async (o) => { await supabase.from('orders').update({ items: o.items, status: o.status }).eq('id', o.id); setOrders(orders.map(old => old.id === o.id ? o : old)); }} onDeleteOrder={async (id) => { await supabase.from('orders').delete().eq('id', id); setOrders(orders.filter(o => o.id !== id)); }} />;
       default:
-        return <DashboardView structures={structures} onSelectStructure={(id) => { setSelectedStructureId(id); setCurrentView('structure-detail'); }} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} />;
+        return <DashboardView structures={structures} onSelectStructure={(id) => { setSelectedStructureId(id); setCurrentView('structure-detail'); }} role={currentUser.role} pendingOrdersCount={0} onNavigateToOrders={() => {}} onAddStructure={() => {}} />;
     }
   };
 
@@ -228,7 +251,7 @@ const LoginView: React.FC<{ onLogin: (e: string, p: string) => void }> = ({ onLo
   );
 };
 
-const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id: string) => void, role: Role, pendingOrdersCount: number, onNavigateToOrders: () => void }> = ({ structures, onSelectStructure, pendingOrdersCount, onNavigateToOrders }) => (
+const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id: string) => void, role: Role, pendingOrdersCount: number, onNavigateToOrders: () => void, onAddStructure: () => void }> = ({ structures, onSelectStructure, pendingOrdersCount, onNavigateToOrders, onAddStructure, role }) => (
   <div>
     {pendingOrdersCount > 0 && (
       <div onClick={onNavigateToOrders} className="mb-6 bg-orange-50 border border-orange-200 p-4 rounded-xl flex items-center justify-between cursor-pointer hover:bg-orange-100">
@@ -236,7 +259,14 @@ const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id:
         <div className="bg-orange-600 text-white px-3 py-1 rounded-lg text-sm font-bold">Vedi</div>
       </div>
     )}
-    <h2 className="text-2xl font-bold mb-6">Zone & Strutture</h2>
+    <div className="flex justify-between items-center mb-6">
+      <h2 className="text-2xl font-bold">Zone & Strutture</h2>
+      {role === Role.ADMIN && (
+        <button onClick={onAddStructure} className="bg-emerald-600 text-white p-2 rounded-full shadow-lg hover:bg-emerald-700 transition-colors">
+          <Plus size={24} />
+        </button>
+      )}
+    </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {structures.map(s => (
         <div key={s.id} onClick={() => onSelectStructure(s.id)} className="bg-white rounded-xl shadow-sm hover:shadow-md cursor-pointer border overflow-hidden">
@@ -244,9 +274,33 @@ const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id:
           <div className="p-4"><h3 className="font-bold text-lg">{s.name}</h3><p className="text-sm text-gray-500">{s.address}</p></div>
         </div>
       ))}
+      {role === Role.ADMIN && (
+        <div onClick={onAddStructure} className="border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-8 text-gray-400 hover:border-emerald-500 hover:text-emerald-500 cursor-pointer transition-colors">
+          <Plus size={48} />
+          <span className="mt-2 font-bold uppercase text-xs tracking-widest">Aggiungi Struttura</span>
+        </div>
+      )}
     </div>
   </div>
 );
+
+const AddStructureView: React.FC<{ onSave: (s: any) => void, onCancel: () => void }> = ({ onSave, onCancel }) => {
+  const [form, setForm] = useState({ name: '', address: '', accessCodes: '' });
+  return (
+    <div className="max-w-xl mx-auto bg-white p-8 rounded-2xl shadow-xl">
+      <h2 className="text-2xl font-bold mb-6">Nuova Struttura</h2>
+      <div className="space-y-4 mb-8">
+        <div><label className="block text-sm font-bold mb-1">Nome Struttura</label><input className="w-full border p-3 rounded-lg" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Es. Villa Paradiso" /></div>
+        <div><label className="block text-sm font-bold mb-1">Indirizzo</label><input className="w-full border p-3 rounded-lg" value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Via Roma 1..." /></div>
+        <div><label className="block text-sm font-bold mb-1">Codici Accesso</label><textarea className="w-full border p-3 rounded-lg" value={form.accessCodes} onChange={e => setForm({...form, accessCodes: e.target.value})} placeholder="Keybox: 1234, Allarme: 0000" /></div>
+      </div>
+      <div className="flex gap-4">
+        <button onClick={() => onSave(form)} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-bold">Crea Struttura</button>
+        <button onClick={onCancel} className="px-6 bg-gray-100 rounded-lg font-bold">Annulla</button>
+      </div>
+    </div>
+  );
+};
 
 const StructureDetailView: React.FC<{
   structureId: string; currentUser: User; inventories: InventoryReport[]; orders: Order[];
@@ -266,33 +320,32 @@ const StructureDetailView: React.FC<{
 
   return (
     <div className="max-w-5xl mx-auto">
-      <button onClick={onBack} className="flex items-center gap-2 text-gray-500 mb-6"><MapPin size={18} /> Torna</button>
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-6">
-        <h1 className="text-3xl font-bold">{structure.name}</h1>
-        <p className="text-gray-500">{structure.address}</p>
-        <p className="mt-2 font-mono bg-gray-50 inline-block px-2 py-1 border rounded">Codici: {structure.accessCodes}</p>
+      <button onClick={onBack} className="flex items-center gap-2 text-gray-500 mb-6 hover:text-emerald-600 transition-colors"><MapPin size={18} /> Torna alle Strutture</button>
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">{structure.name}</h1>
+          <p className="text-gray-500">{structure.address}</p>
+        </div>
+        <div className="font-mono bg-slate-100 p-3 rounded-lg border flex items-center gap-2">
+          <Key size={18} className="text-slate-500" />
+          <span>{structure.accessCodes}</span>
+        </div>
       </div>
 
       <div className="flex gap-4 border-b mb-6 overflow-x-auto">
-        <button onClick={() => setActiveTab('info')} className={`pb-2 px-1 ${activeTab === 'info' ? 'border-b-2 border-emerald-600 text-emerald-600' : ''}`}>Azioni</button>
-        <button onClick={() => setActiveTab('damages')} className={`pb-2 px-1 ${activeTab === 'damages' ? 'border-b-2 border-emerald-600 text-emerald-600' : ''}`}>Guasti ({structDamages.filter(d=>d.status==='OPEN').length})</button>
-        <button onClick={() => setActiveTab('history')} className={`pb-2 px-1 ${activeTab === 'history' ? 'border-b-2 border-emerald-600 text-emerald-600' : ''}`}>Storico</button>
+        <button onClick={() => setActiveTab('info')} className={`pb-2 px-1 whitespace-nowrap font-medium ${activeTab === 'info' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-gray-500'}`}>Azioni Rapide</button>
+        <button onClick={() => setActiveTab('damages')} className={`pb-2 px-1 whitespace-nowrap font-medium ${activeTab === 'damages' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-gray-500'}`}>Guasti ({structDamages.filter(d=>d.status==='OPEN').length})</button>
+        <button onClick={() => setActiveTab('history')} className={`pb-2 px-1 whitespace-nowrap font-medium ${activeTab === 'history' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-gray-500'}`}>Storico Attività</button>
       </div>
 
       {activeTab === 'info' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div onClick={() => onNewInventory('PRODUCT')} className="cursor-pointer bg-white p-6 rounded-xl shadow-sm border hover:border-emerald-500 flex items-center gap-4">
-            <Box className="text-emerald-600" size={32} /><div><h3 className="font-bold">Inventario Prodotti</h3><p className="text-sm text-gray-500">Registra consumabili</p></div>
-          </div>
-          <div onClick={() => onNewInventory('LINEN')} className="cursor-pointer bg-white p-6 rounded-xl shadow-sm border hover:border-indigo-500 flex items-center gap-4">
-            <Shirt className="text-indigo-600" size={32} /><div><h3 className="font-bold">Conta Biancheria</h3><p className="text-sm text-gray-500">Gestione lavanderia</p></div>
-          </div>
-          <div onClick={onReportLinen} className="cursor-pointer bg-blue-50 p-6 rounded-xl shadow-sm border-blue-200 border flex items-center gap-4">
-            <RefreshCw className="text-blue-600" size={32} /><div><h3 className="font-bold">Report Biancheria</h3><p className="text-sm text-blue-700">Sporca o non utilizzata</p></div>
-          </div>
-          <div onClick={onReportDamage} className="cursor-pointer bg-red-50 p-6 rounded-xl shadow-sm border-red-200 border flex items-center gap-4">
-            <AlertTriangle className="text-red-600" size={32} /><div><h3 className="font-bold">Segnala Guasto</h3><p className="text-sm text-red-700">Riparazioni e manutenzione</p></div>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ActionCard icon={<Box className="text-emerald-600" />} title="Inventario Prodotti" desc="Registra consumabili usati" onClick={() => onNewInventory('PRODUCT')} />
+          <ActionCard icon={<Shirt className="text-indigo-600" />} title="Conta Biancheria" desc="Registra biancheria pulita" onClick={() => onNewInventory('LINEN')} />
+          <ActionCard icon={<ShoppingCart className="text-amber-600" />} title="Ordina Prodotti" desc="Richiedi nuovi materiali" onClick={() => onRequestOrder('PRODUCT')} bg="bg-amber-50" border="border-amber-200" />
+          <ActionCard icon={<Truck className="text-blue-600" />} title="Ordina Biancheria" desc="Richiedi lavanderia" onClick={() => onRequestOrder('LINEN')} bg="bg-blue-50" border="border-blue-200" />
+          <ActionCard icon={<RefreshCw className="text-purple-600" />} title="Report Biancheria" desc="Sporca o non utilizzata" onClick={onReportLinen} bg="bg-purple-50" border="border-purple-200" />
+          <ActionCard icon={<AlertTriangle className="text-red-600" />} title="Segnala Guasto" desc="Riparazioni e manutenzione" onClick={onReportDamage} bg="bg-red-50" border="border-red-200" />
         </div>
       )}
 
@@ -309,10 +362,10 @@ const StructureDetailView: React.FC<{
                 </div>
                 <div className="flex gap-2">
                   {d.status === 'OPEN' && (currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) && (
-                    <button onClick={() => onUpdateDamageStatus(d.id, 'RESOLVED')} className="bg-green-600 text-white p-2 rounded-lg" title="Riparato"><CheckCircle2 size={18} /></button>
+                    <button onClick={() => onUpdateDamageStatus(d.id, 'RESOLVED')} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 transition-colors" title="Riparato"><CheckCircle2 size={18} /></button>
                   )}
                   {(currentUser.role === Role.ADMIN || currentUser.role === Role.RECEPTION) && (
-                    <button onClick={() => onUpdateDamageStatus(d.id, 'ARCHIVED')} className="bg-gray-200 text-gray-600 p-2 rounded-lg" title="Cestina"><Trash size={18} /></button>
+                    <button onClick={() => onUpdateDamageStatus(d.id, 'ARCHIVED')} className="bg-gray-200 text-gray-600 p-2 rounded-lg hover:bg-gray-300 transition-colors" title="Cestina"><Trash size={18} /></button>
                   )}
                 </div>
               </div>
@@ -321,7 +374,48 @@ const StructureDetailView: React.FC<{
         </div>
       )}
       
-      {activeTab === 'history' && <div className="text-center py-10 text-gray-400">Visualizza qui lo storico degli ordini e degli inventari passati.</div>}
+      {activeTab === 'history' && <div className="text-center py-10 text-gray-400">Lo storico delle operazioni verrà caricato qui.</div>}
+    </div>
+  );
+};
+
+const ActionCard: React.FC<{ icon: any, title: string, desc: string, onClick: () => void, bg?: string, border?: string }> = ({ icon, title, desc, onClick, bg = "bg-white", border = "border-gray-200" }) => (
+  <div onClick={onClick} className={`cursor-pointer ${bg} p-6 rounded-xl shadow-sm border ${border} hover:shadow-md transition-all flex items-center gap-4`}>
+    <div className="p-3 bg-white rounded-lg shadow-sm">{React.cloneElement(icon, { size: 32 })}</div>
+    <div><h3 className="font-bold">{title}</h3><p className="text-sm opacity-70">{desc}</p></div>
+  </div>
+);
+
+const NewOrderView: React.FC<{ structureId: string, currentUser: User, products: Product[], type: ItemType, onSave: (o: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, type, onSave, onCancel }) => {
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const filtered = products.filter(p => p.type === type);
+  return (
+    <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-lg">
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`p-3 rounded-lg ${type === 'LINEN' ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>
+          {type === 'LINEN' ? <Truck size={24} /> : <ShoppingCart size={24} />}
+        </div>
+        <h2 className="text-2xl font-bold">Ordine {type === 'LINEN' ? 'Biancheria' : 'Prodotti'}</h2>
+      </div>
+      <div className="space-y-3 mb-8 bg-gray-50 p-4 rounded-xl border max-h-[400px] overflow-y-auto">
+        {filtered.map(p => (
+          <div key={p.id} className="flex justify-between items-center p-3 bg-white rounded-lg border shadow-sm">
+            <span className="font-medium">{p.name} <span className="text-xs text-gray-400">({p.unit})</span></span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setQuantities({...quantities, [p.id]: Math.max(0, (quantities[p.id]||0) - 1)})} className="p-1 text-gray-400 hover:text-red-500"><Minus size={18} /></button>
+              <input type="number" className="w-16 border rounded p-1 text-center font-bold" value={quantities[p.id] || 0} onChange={e => setQuantities({...quantities, [p.id]: parseInt(e.target.value)||0})} />
+              <button onClick={() => setQuantities({...quantities, [p.id]: (quantities[p.id]||0) + 1})} className="p-1 text-gray-400 hover:text-emerald-500"><Plus size={18} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-3">
+        {/* Fix: Cast Object.entries to correct type to avoid 'unknown' operator error */}
+        <button onClick={() => onSave({ structureId, requesterId: currentUser.id, dateCreated: new Date().toISOString(), items: (Object.entries(quantities) as [string, number][]).filter(([_, q]) => q > 0).map(([pid, q]) => ({ productId: pid, quantity: q })), status: OrderStatus.PENDING, type })} className="flex-1 bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2">
+          <Send size={20} /> Invia Richiesta Ordine
+        </button>
+        <button onClick={onCancel} className="px-6 bg-gray-100 rounded-xl font-bold">Annulla</button>
+      </div>
     </div>
   );
 };
@@ -331,10 +425,10 @@ const NewDamageReportView: React.FC<{ structureId: string, currentUser: User, pr
   return (
     <div className="max-w-xl mx-auto bg-white p-6 rounded-xl shadow-lg">
       <h2 className="text-2xl font-bold text-red-600 mb-4 flex items-center gap-2"><AlertTriangle /> Segnala Problema</h2>
-      <textarea className="w-full border p-4 rounded-lg h-40 mb-6" placeholder="Descrivi il guasto..." value={notes} onChange={e => setNotes(e.target.value)} />
+      <textarea className="w-full border p-4 rounded-lg h-40 mb-6 focus:ring-2 focus:ring-red-200 outline-none" placeholder="Descrivi il guasto o l'anomalia..." value={notes} onChange={e => setNotes(e.target.value)} />
       <div className="flex gap-3">
-        <button onClick={() => onSave({ id: `dmg-${Date.now()}`, structureId, reporterId: currentUser.id, date: new Date().toISOString(), items: [], notes, status: 'OPEN' })} className="flex-1 bg-red-600 text-white py-3 rounded-lg font-bold">Invia</button>
-        <button onClick={onCancel} className="px-6 bg-gray-100 rounded-lg">Annulla</button>
+        <button onClick={() => onSave({ id: `dmg-${Date.now()}`, structureId, reporterId: currentUser.id, date: new Date().toISOString(), items: [], notes, status: 'OPEN' })} className="flex-1 bg-red-600 text-white py-3 rounded-lg font-bold">Invia Segnalazione</button>
+        <button onClick={onCancel} className="px-6 bg-gray-100 rounded-lg font-bold">Annulla</button>
       </div>
     </div>
   );
@@ -346,8 +440,9 @@ const NewUnusedLinenView: React.FC<{ structureId: string, currentUser: User, pro
   const [unused, setUnused] = useState<Record<string, number>>({});
 
   const handleSave = () => {
-    const dirtyItems = Object.entries(dirty).map(([pid, q]) => ({ productId: pid, quantity: q }));
-    const unusedItems = Object.entries(unused).map(([pid, q]) => ({ productId: pid, quantity: q }));
+    /* Fix: Cast Object.entries to correct type to avoid 'unknown' operator error */
+    const dirtyItems = (Object.entries(dirty) as [string, number][]).filter(([_, q]) => q > 0).map(([pid, q]) => ({ productId: pid, quantity: q }));
+    const unusedItems = (Object.entries(unused) as [string, number][]).filter(([_, q]) => q > 0).map(([pid, q]) => ({ productId: pid, quantity: q }));
     onSave({ id: `lin-${Date.now()}`, structureId, operatorId: currentUser.id, date: new Date().toISOString(), dirtyItems, unusedItems });
   };
 
@@ -372,24 +467,28 @@ const NewUnusedLinenView: React.FC<{ structureId: string, currentUser: User, pro
         ))}
       </div>
       <div className="flex gap-3">
-        <button onClick={handleSave} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Salva Report</button>
+        <button onClick={handleSave} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-blue-700 transition-colors">Salva Report</button>
         <button onClick={onCancel} className="px-6 bg-gray-100 rounded-lg">Annulla</button>
       </div>
     </div>
   );
 };
 
-const AdminLinenSummaryView: React.FC<{ reports: UnusedLinenReport[], products: Product[], structures: Structure[], users: User[] }> = ({ reports, products, structures }) => {
+const AdminLinenSummaryView: React.FC<{ reports: UnusedLinenReport[], products: Product[], structures: Structure[], users: User[] }> = ({ reports, products }) => {
   const totals = useMemo(() => {
     const res: Record<string, { dirty: number, unused: number }> = {};
     reports.forEach(r => {
       r.dirtyItems.forEach(i => {
         if (!res[i.productId]) res[i.productId] = { dirty: 0, unused: 0 };
-        res[i.productId].dirty += i.quantity;
+        /* Fix: Access correctly typed properties */
+        const current = res[i.productId]!;
+        current.dirty += i.quantity;
       });
       r.unusedItems.forEach(i => {
         if (!res[i.productId]) res[i.productId] = { dirty: 0, unused: 0 };
-        res[i.productId].unused += i.quantity;
+        /* Fix: Access correctly typed properties */
+        const current = res[i.productId]!;
+        current.unused += i.quantity;
       });
     });
     return res;
@@ -397,7 +496,8 @@ const AdminLinenSummaryView: React.FC<{ reports: UnusedLinenReport[], products: 
 
   const exportCSV = () => {
     let csv = "Prodotto,Sporca,Inutilizzata\n";
-    Object.entries(totals).forEach(([pid, val]) => {
+    /* Fix: Cast Object.entries to correct type to avoid 'unknown' property access error */
+    (Object.entries(totals) as [string, { dirty: number, unused: number }][]).forEach(([pid, val]) => {
       const p = products.find(prod => prod.id === pid);
       csv += `${p?.name || pid},${val.dirty},${val.unused}\n`;
     });
@@ -413,9 +513,9 @@ const AdminLinenSummaryView: React.FC<{ reports: UnusedLinenReport[], products: 
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Riepilogo Totale Biancheria</h2>
-        <button onClick={exportCSV} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold"><Download size={18} /> Esporta CSV</button>
+        <button onClick={exportCSV} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-emerald-700 transition-colors"><Download size={18} /> Esporta CSV</button>
       </div>
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden border">
         <table className="w-full text-left">
           <thead className="bg-gray-50 border-b">
             <tr>
@@ -425,17 +525,18 @@ const AdminLinenSummaryView: React.FC<{ reports: UnusedLinenReport[], products: 
             </tr>
           </thead>
           <tbody>
-            {Object.entries(totals).map(([pid, val]) => {
+            {/* Fix: Cast Object.entries to correct type to avoid 'unknown' property access error */}
+            {(Object.entries(totals) as [string, { dirty: number, unused: number }][]).map(([pid, val]) => {
               const p = products.find(prod => prod.id === pid);
               return (
-                <tr key={pid} className="border-b">
+                <tr key={pid} className="border-b last:border-0">
                   <td className="p-4 font-medium">{p?.name}</td>
                   <td className="p-4 text-red-600 font-bold">{val.dirty}</td>
                   <td className="p-4 text-blue-600 font-bold">{val.unused}</td>
                 </tr>
               );
             })}
-            {Object.keys(totals).length === 0 && <tr><td colSpan={3} className="p-10 text-center text-gray-400">Nessun dato disponibile.</td></tr>}
+            {Object.keys(totals).length === 0 && <tr><td colSpan={3} className="p-10 text-center text-gray-400 italic">Nessun dato disponibile negli ultimi report.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -449,17 +550,18 @@ const NewInventoryView: React.FC<{ structureId: string, currentUser: User, produ
   return (
     <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-lg">
       <h2 className="text-2xl font-bold mb-6">Nuovo Inventario {type}</h2>
-      <div className="space-y-3 mb-6">
+      <div className="space-y-3 mb-6 max-h-[400px] overflow-y-auto pr-2">
         {filtered.map(p => (
-          <div key={p.id} className="flex justify-between items-center p-2 border-b">
-            <span>{p.name}</span>
-            <input type="number" className="w-20 border rounded p-1 text-center" placeholder="0" onChange={e => setQuantities({...quantities, [p.id]: parseInt(e.target.value)||0})} />
+          <div key={p.id} className="flex justify-between items-center p-3 border rounded-lg bg-gray-50">
+            <span className="font-medium">{p.name} <span className="text-xs text-gray-400">({p.unit})</span></span>
+            <input type="number" className="w-20 border rounded-lg p-2 text-center font-bold" placeholder="0" onChange={e => setQuantities({...quantities, [p.id]: parseInt(e.target.value)||0})} />
           </div>
         ))}
       </div>
       <div className="flex gap-3">
-        <button onClick={() => onSave({ id: `inv-${Date.now()}`, structureId, operatorId: currentUser.id, date: new Date().toISOString(), items: Object.entries(quantities).map(([pid, q]) => ({ productId: pid, quantity: q })), type, signatureUrl: 'Firma Digitale' })} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-bold">Salva</button>
-        <button onClick={onCancel} className="px-6 bg-gray-100 rounded-lg">Annulla</button>
+        {/* Fix: Cast Object.entries to correct type to avoid 'unknown' operator error */}
+        <button onClick={() => onSave({ structureId, operatorId: currentUser.id, date: new Date().toISOString(), items: (Object.entries(quantities) as [string, number][]).filter(([_, q]) => q > 0).map(([pid, q]) => ({ productId: pid, quantity: q })), type, signatureUrl: 'Firma Elettronica' })} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-emerald-700 transition-colors">Salva Inventario</button>
+        <button onClick={onCancel} className="px-6 bg-gray-100 rounded-lg font-bold">Annulla</button>
       </div>
     </div>
   );
@@ -469,25 +571,34 @@ const ManageOrdersView: React.FC<{ orders: Order[], structures: Structure[], pro
   const filtered = orders.filter(o => o.type === targetType);
   return (
     <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Ordini {targetType}</h2>
+      <h2 className="text-2xl font-bold mb-6">Gestione Ordini {targetType === 'LINEN' ? 'Biancheria' : 'Prodotti'}</h2>
       <div className="space-y-4">
         {filtered.map(o => (
-          <div key={o.id} className="bg-white p-4 rounded-xl border flex justify-between items-center">
+          <div key={o.id} className="bg-white p-5 rounded-xl border shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <p className="font-bold">{structures.find(s => s.id === o.structureId)?.name}</p>
-              <p className="text-xs text-gray-400">Da: {users.find(u => u.id === o.requesterId)?.name} - {o.status}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-lg">{structures.find(s => s.id === o.structureId)?.name}</p>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${o.status === 'PENDING' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'}`}>{o.status}</span>
+              </div>
+              <p className="text-xs text-gray-400">Richiesto da: {users.find(u => u.id === o.requesterId)?.name} il {new Date(o.dateCreated).toLocaleDateString()}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {o.items.map(i => (
+                  <span key={i.productId} className="text-xs bg-slate-100 px-2 py-1 rounded border">{products.find(p=>p.id===i.productId)?.name}: {i.quantity}</span>
+                ))}
+              </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full md:w-auto">
               {o.status === 'PENDING' && (
                 <>
-                  <button onClick={() => onUpdateOrder({...o, status: OrderStatus.SENT})} className="bg-blue-600 text-white px-3 py-1 rounded text-sm">Approva</button>
-                  <button onClick={() => onDeleteOrder(o.id)} className="text-red-500"><Trash2 size={18} /></button>
+                  <button onClick={() => onUpdateOrder({...o, status: OrderStatus.SENT})} className="flex-1 md:flex-none bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700 transition-colors">Approva & Invia</button>
+                  <button onClick={() => onDeleteOrder(o.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-100"><Trash2 size={20} /></button>
                 </>
               )}
+              {o.status === 'SENT' && <span className="text-blue-600 font-bold flex items-center gap-1"><Truck size={18} /> Inviato</span>}
             </div>
           </div>
         ))}
-        {filtered.length === 0 && <p className="text-center py-10 text-gray-400">Nessun ordine presente.</p>}
+        {filtered.length === 0 && <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-gray-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Nessun ordine in questa categoria.</p></div>}
       </div>
     </div>
   );
