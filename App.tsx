@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
@@ -17,24 +18,24 @@ const mapUser = (u: any): User => ({
   id: u.id, name: u.name, email: u.email, role: u.role as Role, password: u.password
 });
 
+// Fixed property name from access_codes to accessCodes
 const mapStructure = (s: any): Structure => ({
-  id: s.id, name: s.name, address: s.address, access_codes: s.access_codes, imageUrl: s.image_url
+  id: s.id, name: s.name, address: s.address, accessCodes: s.access_codes, imageUrl: s.image_url
 });
 
-const mapProduct = (p: any): Product => ({
-  id: p.id, name: p.name, category: p.category, unit: p.unit, type: p.type
-});
-
+// Fixed property names to match InventoryReport interface
 const mapInventory = (i: any): InventoryReport => ({
-  id: i.id, structureId: i.structure_id, operator_id: i.operator_id, date: i.date, items: i.items, signature_url: i.signature_url, photo_url: i.photo_url, notes: i.notes, type: i.type
+  id: i.id, structureId: i.structure_id, operatorId: i.operator_id, date: i.date, items: i.items, signatureUrl: i.signature_url, photoUrl: i.photo_url, notes: i.notes, type: i.type
 });
 
+// Fixed property names to match Order interface
 const mapOrder = (o: any): Order => ({
-  id: o.id, structureId: o.structure_id, requester_id: o.requester_id, date_created: o.date_created, date_sent: o.date_sent, sent_to_email: o.sent_to_email, items: o.items, status: o.status, type: o.type
+  id: o.id, structureId: o.structure_id, requesterId: o.requester_id, dateCreated: o.date_created, dateSent: o.date_sent, sentToEmail: o.sent_to_email, items: o.items, status: o.status, type: o.type
 });
 
+// Fixed property name to match DamageReport interface
 const mapDamageReport = (d: any): DamageReport => ({
-  id: d.id, structureId: d.structure_id, reporter_id: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status
+  id: d.id, structureId: d.structure_id, reporterId: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status
 });
 
 // --- Main App ---
@@ -259,7 +260,7 @@ const App: React.FC = () => {
                 type={activeItemType}
                 onSave={async (ord) => {
                   const { data, error } = await supabase.from('orders').insert({
-                     id: ord.id, structure_id: ord.structureId, requester_id: ord.requester_id,
+                     id: ord.id, structure_id: ord.structureId, requester_id: ord.requesterId,
                      date_created: ord.dateCreated, status: ord.status, items: ord.items, type: ord.type
                   }).select().single();
                   if(!error && data) {
@@ -603,7 +604,7 @@ const StructureDetailView: React.FC<{
   onBack, onNewInventory, onRequestOrder, onReportDamage, onEditStructure, onResolveDamage, onDeleteDamage
 }) => {
   const structure = structures.find(s => s.id === structureId);
-  const [activeTab, setActiveTab] = useState<'info' | 'inventory' | 'orders' | 'damages'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'inventory' | 'orders' | 'damages' | 'info'>('info');
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Structure | null>(null);
 
@@ -832,9 +833,10 @@ const NewInventoryView: React.FC<{
       alert("La firma (nome operatore) è obbligatoria.");
       return;
     }
+    // Fixed unknown type issue by using type assertion for q
     const items: InventoryItem[] = Object.entries(quantities)
-      .filter(([_, q]) => q > 0)
-      .map(([pid, q]) => ({ productId: pid, quantity: q }));
+      .filter(([_, q]) => (q as number) > 0)
+      .map(([pid, q]) => ({ productId: pid, quantity: q as number }));
 
     if (items.length === 0) {
       alert("Inserisci almeno una quantità.");
@@ -922,9 +924,10 @@ const NewOrderView: React.FC<{
   const [quantities, setQuantities] = useState<Record<string, number>>({});
 
   const handleSubmit = () => {
+    // Fixed unknown type issue by using type assertion for q
     const items: InventoryItem[] = Object.entries(quantities)
-      .filter(([_, q]) => q > 0)
-      .map(([pid, q]) => ({ productId: pid, quantity: q }));
+      .filter(([_, q]) => (q as number) > 0)
+      .map(([pid, q]) => ({ productId: pid, quantity: q as number }));
 
     if (items.length === 0) {
        alert("Seleziona almeno un prodotto.");
