@@ -1,9 +1,8 @@
-
 export enum Role {
-  ADMIN = 'admin',
-  RECEPTION = 'reception',
-  OPERATOR = 'operatore',
-  SUPPLIER = 'fornitore'
+  ADMIN = 'ADMIN',
+  RECEPTION = 'RECEPTION',
+  OPERATOR = 'OPERATOR',
+  SUPPLIER = 'SUPPLIER'
 }
 
 export type ItemType = 'PRODUCT' | 'LINEN';
