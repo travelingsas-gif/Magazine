@@ -1,31 +1,717 @@
 <!DOCTYPE html>
 <html lang="it">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestione Magazzino</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CleanManage - Gestione Magazzino</title>
+    
+    <!-- Tailwind CSS (Stile) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Icone Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <style>
-      body { font-family: 'Inter', sans-serif; }
+        body { font-family: 'Inter', sans-serif; }
+        /* Animazioni base */
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .hidden { display: none !important; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #10b981;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.89.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "vite": "https://esm.sh/vite@^7.3.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.89.0",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
 </script>
 </head>
-  <body class="bg-gray-50 text-gray-900 antialiased">
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+<body class="bg-gray-50 text-gray-900 antialiased">
+
+    <!-- Container Principale -->
+    <div id="app" class="min-h-screen flex flex-col md:flex-row">
+        <!-- Il contenuto verrà iniettato qui via JavaScript -->
+    </div>
+
+    <!-- LOGICA JAVASCRIPT -->
+    <script type="module">
+        import { GoogleGenAI } from "https://esm.run/@google/genai";
+
+        // --- CONFIGURAZIONE ---
+        // Chiavi copiate dai tuoi file precedenti
+        const SUPABASE_URL = 'https://vkcqbcglkvvmkkugtvtd.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrY3FiY2dsa3Z2bWtrdWd0dnRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQyNTEsImV4cCI6MjA4MjkzMDI1MX0.hIx76CetZiLgOJvmj1E8HXI7YR-arVJCoM52Al4UQN4';
+        
+        // ATTENZIONE: Inserisci qui la tua chiave Google Gemini
+        // Nota: in una app reale HTML puro, la chiave è esposta. Per uso personale/demo va bene.
+        const GOOGLE_API_KEY = localStorage.getItem('google_api_key') || ''; 
+
+        // Inizializza Client
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        let genAI = GOOGLE_API_KEY ? new GoogleGenAI({ apiKey: GOOGLE_API_KEY }) : null;
+
+        // --- STATO DELL'APPLICAZIONE ---
+        const state = {
+            currentUser: null,
+            view: 'login', // login, dashboard, structure, new-inventory, etc.
+            loading: false,
+            error: null,
+            isMenuOpen: false,
+            
+            // Dati
+            users: [],
+            products: [],
+            structures: [],
+            inventories: [],
+            orders: [],
+            damageReports: [],
+            
+            // Selezione
+            selectedStructureId: null,
+            activeType: 'PRODUCT' // PRODUCT o LINEN
+        };
+
+        // --- FUNZIONI DI UTILITÀ (AIUTANTI) ---
+        const $ = (sel) => document.querySelector(sel);
+        const formatItemType = (t) => t === 'PRODUCT' ? 'Prodotti' : 'Biancheria';
+        const formatDate = (d) => new Date(d).toLocaleDateString() + ' ' + new Date(d).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+        // --- SERVIZI AI ---
+        async function analyzeImage(base64Image) {
+            if (!genAI) {
+                const key = prompt("Inserisci la tua Google API Key per usare l'AI:");
+                if(key) {
+                    localStorage.setItem('google_api_key', key);
+                    genAI = new GoogleGenAI({ apiKey: key });
+                } else {
+                    return [];
+                }
+            }
+
+            try {
+                // Rimuovi header data:image
+                const cleanBase64 = base64Image.split(',')[1] || base64Image;
+                
+                // Filtra prodotti in base al tipo attivo
+                const relevantProducts = state.products.filter(p => p.type === state.activeType);
+                const productNames = relevantProducts.map(p => p.name).join(', ');
+
+                const prompt = `
+                  Analizza questa immagine. Stima la quantità dei seguenti prodotti: ${productNames}.
+                  Rispondi SOLO con un array JSON: [{"productName": "nome", "estimatedQuantity": numero}].
+                  Se non trovi nulla, array vuoto.
+                `;
+
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // Uso flash standard per compatibilità
+                
+                // Nota: In JS Vanilla via CDN, la sintassi potrebbe differire leggermente rispetto al pacchetto npm completo TS.
+                // Adattamento per chiamata standard REST se il pacchetto ESM differisce, ma proviamo via SDK.
+                
+                /* SDK Generazione */
+                const result = await model.generateContent([
+                    prompt,
+                    { inlineData: { data: cleanBase64, mimeType: "image/jpeg" } }
+                ]);
+                
+                const response = await result.response;
+                const text = response.text();
+                
+                // Pulizia JSON (a volte il modello mette ```json ... ```)
+                const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                return JSON.parse(jsonStr);
+
+            } catch (e) {
+                console.error("Errore AI:", e);
+                alert("Errore durante l'analisi AI. Controlla la console o la API Key.");
+                return [];
+            }
+        }
+
+        // --- GESTIONE DATI (CRUD) ---
+        async function fetchData() {
+            renderLoading();
+            try {
+                const [u, p, s, i, o, d] = await Promise.all([
+                    supabase.from('users').select('*'),
+                    supabase.from('products').select('*'),
+                    supabase.from('structures').select('*'),
+                    supabase.from('inventories').select('*'),
+                    supabase.from('orders').select('*'),
+                    supabase.from('damage_reports').select('*')
+                ]);
+
+                if(u.data) state.users = u.data;
+                if(p.data) state.products = p.data;
+                if(s.data) state.structures = s.data;
+                if(i.data) state.inventories = i.data;
+                if(o.data) state.orders = o.data;
+                if(d.data) state.damageReports = d.data;
+
+                renderApp();
+            } catch (err) {
+                console.error(err);
+                alert("Errore caricamento dati. Verifica connessione.");
+                renderLogin(); // Fallback
+            }
+        }
+
+        // --- LOGICA DI NAVIGAZIONE ---
+        window.app = {
+            // Auth
+            login: async (e) => {
+                e.preventDefault();
+                const email = $('#email').value;
+                const pass = $('#password').value;
+                
+                // Login semplificato (in prod usare supabase.auth.signIn)
+                const user = state.users.find(u => u.email === email && u.password === pass);
+                
+                if (user) {
+                    state.currentUser = user;
+                    state.view = user.role === 'SUPPLIER' ? 'supplier' : 'dashboard';
+                    renderApp();
+                } else {
+                    alert('Credenziali errate');
+                }
+            },
+            logout: () => {
+                state.currentUser = null;
+                state.view = 'login';
+                renderApp();
+            },
+
+            // Navigation
+            setView: (view, id = null, type = 'PRODUCT') => {
+                state.view = view;
+                if(id) state.selectedStructureId = id;
+                if(type) state.activeType = type;
+                state.isMenuOpen = false;
+                renderApp();
+            },
+            
+            toggleMenu: () => {
+                state.isMenuOpen = !state.isMenuOpen;
+                renderApp();
+            },
+
+            // Forms Handlers
+            handleImageUpload: (input) => {
+                const file = input.files[0];
+                if(file) {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        const loadingBtn = $('#ai-btn-text');
+                        if(loadingBtn) loadingBtn.innerText = "Analisi in corso...";
+                        
+                        const items = await analyzeImage(e.target.result);
+                        
+                        // Popola i campi input
+                        items.forEach(item => {
+                            // Cerca l'input corrispondente al nome prodotto
+                            // Questo richiede che l'input abbia un attributo o id specifico
+                            // Implementazione semplificata:
+                            const prod = state.products.find(p => p.name.toLowerCase().includes(item.productName.toLowerCase()));
+                            if(prod) {
+                                const el = document.getElementById(`qty-${prod.id}`);
+                                if(el) el.value = item.estimatedQuantity;
+                            }
+                        });
+                        
+                        if(loadingBtn) loadingBtn.innerText = "Compilazione Automatica AI";
+                    };
+                    reader.readAsDataURL(file);
+                }
+            },
+
+            saveInventory: async () => {
+                const quantities = {};
+                let hasItems = false;
+                
+                // Raccogli valori input
+                state.products.filter(p => p.type === state.activeType).forEach(p => {
+                    const val = document.getElementById(`qty-${p.id}`).value;
+                    const qty = parseInt(val);
+                    if(qty > 0) {
+                        quantities[p.id] = qty;
+                        hasItems = true;
+                    }
+                });
+
+                const signature = $('#signature').value;
+                
+                if(!signature) return alert("Firma mancante");
+                if(!hasItems) return alert("Nessun prodotto inserito");
+
+                const itemsPayload = Object.entries(quantities).map(([pid, q]) => ({productId: pid, quantity: q}));
+
+                const { data, error } = await supabase.from('inventories').insert({
+                    structure_id: state.selectedStructureId,
+                    operator_id: state.currentUser.id,
+                    date: new Date().toISOString(),
+                    items: itemsPayload,
+                    signature_url: signature,
+                    type: state.activeType,
+                    notes: $('#notes').value
+                }).select();
+
+                if(!error) {
+                    state.inventories.push(data[0]);
+                    window.app.setView('structure', state.selectedStructureId);
+                } else {
+                    alert("Errore salvataggio: " + error.message);
+                }
+            },
+
+            saveOrder: async () => {
+                 const quantities = {};
+                let hasItems = false;
+                
+                state.products.filter(p => p.type === state.activeType).forEach(p => {
+                    const val = document.getElementById(`qty-${p.id}`).value;
+                    const qty = parseInt(val);
+                    if(qty > 0) {
+                        quantities[p.id] = qty;
+                        hasItems = true;
+                    }
+                });
+
+                if(!hasItems) return alert("Seleziona almeno un prodotto");
+
+                const itemsPayload = Object.entries(quantities).map(([pid, q]) => ({productId: pid, quantity: q}));
+
+                const { data, error } = await supabase.from('orders').insert({
+                    structure_id: state.selectedStructureId,
+                    requester_id: state.currentUser.id,
+                    date_created: new Date().toISOString(),
+                    status: 'PENDING',
+                    items: itemsPayload,
+                    type: state.activeType
+                }).select();
+
+                if(!error) {
+                    state.orders.push(data[0]);
+                    window.app.setView('structure', state.selectedStructureId);
+                }
+            },
+
+            saveDamage: async () => {
+                const notes = $('#notes').value;
+                if(!notes) return alert("Inserisci descrizione");
+
+                const { data, error } = await supabase.from('damage_reports').insert({
+                    structure_id: state.selectedStructureId,
+                    reporter_id: state.currentUser.id,
+                    date: new Date().toISOString(),
+                    items: [],
+                    notes: notes,
+                    status: 'OPEN'
+                }).select();
+
+                if(!error) {
+                    state.damageReports.push(data[0]);
+                    window.app.setView('structure', state.selectedStructureId);
+                }
+            },
+
+            updateOrderStatus: async (id, status) => {
+                const { error } = await supabase.from('orders').update({ status: status }).eq('id', id);
+                if(!error) {
+                    const o = state.orders.find(x => x.id === id);
+                    if(o) o.status = status;
+                    renderApp();
+                }
+            }
+        };
+
+        // --- RENDER FUNCTIONS (HTML STRING BUILDERS) ---
+        
+        function renderLoading() {
+            $('#app').innerHTML = `
+                <div class="w-full h-screen flex flex-col items-center justify-center bg-gray-50">
+                    <div class="loader mb-4"></div>
+                    <p class="text-gray-500">Caricamento CleanManage...</p>
+                </div>`;
+        }
+
+        function renderLogin() {
+            $('#app').innerHTML = `
+                <div class="w-full min-h-screen flex items-center justify-center bg-gray-100 p-4">
+                    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+                        <div class="text-center mb-8">
+                             <div class="bg-emerald-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i data-lucide="building-2" class="text-emerald-600 w-8 h-8"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-gray-800">CleanManage</h2>
+                            <p class="text-gray-500">Accesso portale</p>
+                        </div>
+                        <form onsubmit="window.app.login(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                <input id="email" type="email" value="admin@hotel.com" class="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-emerald-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <input id="password" type="password" value="password" class="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-emerald-500">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition">Accedi</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function renderSidebar() {
+            const u = state.currentUser;
+            const menuClass = state.isMenuOpen ? 'translate-x-0' : '-translate-x-full';
+            
+            // Badge conteggio ordini
+            const pending = state.orders.filter(o => o.status === 'PENDING').length;
+
+            return `
+            <div class="md:hidden bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 w-full fixed">
+                <h1 class="text-xl font-bold text-emerald-700">CleanManage</h1>
+                <button onclick="window.app.toggleMenu()"><i data-lucide="${state.isMenuOpen ? 'x' : 'menu'}"></i></button>
+            </div>
+
+            <aside class="fixed inset-y-0 left-0 transform ${menuClass} md:relative md:translate-x-0 transition duration-200 ease-in-out w-64 bg-slate-900 text-white p-6 flex flex-col z-30 h-screen overflow-y-auto">
+                <div class="hidden md:flex items-center gap-2 mb-10">
+                    <i data-lucide="building-2" class="text-emerald-400"></i>
+                    <span class="text-xl font-bold">CleanManage</span>
+                </div>
+                
+                <div class="mb-6 pb-6 border-b border-slate-700">
+                     <p class="text-sm font-medium">${u.name}</p>
+                     <p class="text-xs text-slate-400 capitalize">${u.role}</p>
+                </div>
+
+                <nav class="space-y-2 flex-1">
+                    ${u.role !== 'SUPPLIER' ? `
+                    <button onclick="window.app.setView('dashboard')" class="w-full flex items-center gap-3 p-3 rounded hover:bg-slate-800 ${state.view === 'dashboard' ? 'bg-emerald-600' : ''}">
+                        <i data-lucide="layout-dashboard" class="w-5 h-5"></i> Zone / Strutture
+                    </button>
+                    
+                    <div class="pt-4 text-xs text-slate-500 font-bold uppercase">Operatività</div>
+                    <button onclick="window.app.setView('orders-list', null, 'PRODUCT')" class="w-full flex items-center justify-between p-3 rounded hover:bg-slate-800 ${state.view === 'orders-list' && state.activeType === 'PRODUCT' ? 'bg-emerald-600' : ''}">
+                        <div class="flex gap-3"><i data-lucide="shopping-cart" class="w-5 h-5"></i> Ordini Prodotti</div>
+                        ${pending > 0 ? `<span class="bg-red-500 text-xs px-2 rounded-full">${pending}</span>` : ''}
+                    </button>
+                    <button onclick="window.app.setView('orders-list', null, 'LINEN')" class="w-full flex items-center gap-3 p-3 rounded hover:bg-slate-800 ${state.view === 'orders-list' && state.activeType === 'LINEN' ? 'bg-emerald-600' : ''}">
+                        <i data-lucide="shirt" class="w-5 h-5"></i> Ordini Biancheria
+                    </button>
+                    ` : `
+                     <button onclick="window.app.setView('supplier')" class="w-full flex items-center gap-3 p-3 rounded bg-emerald-600">
+                        <i data-lucide="truck" class="w-5 h-5"></i> Pannello Fornitore
+                    </button>
+                    `}
+                </nav>
+
+                <button onclick="window.app.logout()" class="flex items-center gap-2 text-slate-400 hover:text-white mt-4">
+                    <i data-lucide="log-out" class="w-5 h-5"></i> Esci
+                </button>
+            </aside>
+            `;
+        }
+
+        // --- VISTE SPECIFICHE ---
+
+        function renderDashboardContent() {
+            const structures = state.structures;
+            let html = `
+                <div class="p-4 md:p-8 w-full overflow-y-auto">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6">Zone e Strutture</h1>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${structures.map(s => `
+                            <div onclick="window.app.setView('structure', '${s.id}')" class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition cursor-pointer border border-gray-100 overflow-hidden">
+                                <div class="h-48 bg-gray-200 relative">
+                                    <img src="${s.image_url || 'https://via.placeholder.com/800x400'}" class="w-full h-full object-cover">
+                                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
+                                        <h3 class="text-white font-bold text-xl">${s.name}</h3>
+                                    </div>
+                                </div>
+                                <div class="p-6">
+                                    <p class="text-gray-500 flex items-center gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-emerald-500"></i> ${s.address}</p>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            return html;
+        }
+
+        function renderStructureDetail() {
+            const s = state.structures.find(x => x.id === state.selectedStructureId);
+            if(!s) return "<div>Struttura non trovata</div>";
+
+            // Filtra dati
+            const invs = state.inventories.filter(i => i.structure_id === s.id);
+            const ords = state.orders.filter(o => o.structure_id === s.id);
+            const dmgs = state.damageReports.filter(d => d.structure_id === s.id);
+
+            return `
+            <div class="p-4 md:p-8 w-full overflow-y-auto">
+                <button onclick="window.app.setView('dashboard')" class="text-gray-500 mb-4 flex items-center gap-2 hover:text-emerald-600"><i data-lucide="arrow-left" class="w-4 h-4"></i> Torna indietro</button>
+                
+                <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">${s.name}</h1>
+                    <p class="text-gray-500">${s.address}</p>
+                    <div class="mt-2 inline-block bg-gray-100 px-3 py-1 rounded text-sm font-mono text-gray-600 border">Cod: ${s.access_codes}</div>
+                </div>
+
+                <!-- GRIGLIA AZIONI -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                     <div onclick="window.app.setView('inventory-new', '${s.id}', 'PRODUCT')" class="cursor-pointer bg-emerald-50 border border-emerald-100 p-6 rounded-xl hover:shadow-md transition">
+                        <i data-lucide="box" class="text-emerald-600 w-8 h-8 mb-2"></i>
+                        <h3 class="font-bold text-emerald-900">Inventario Prodotti</h3>
+                     </div>
+                     <div onclick="window.app.setView('inventory-new', '${s.id}', 'LINEN')" class="cursor-pointer bg-indigo-50 border border-indigo-100 p-6 rounded-xl hover:shadow-md transition">
+                        <i data-lucide="shirt" class="text-indigo-600 w-8 h-8 mb-2"></i>
+                        <h3 class="font-bold text-indigo-900">Conta Biancheria</h3>
+                     </div>
+                     <div onclick="window.app.setView('order-new', '${s.id}', 'PRODUCT')" class="cursor-pointer bg-orange-50 border border-orange-100 p-6 rounded-xl hover:shadow-md transition">
+                        <i data-lucide="shopping-cart" class="text-orange-600 w-8 h-8 mb-2"></i>
+                        <h3 class="font-bold text-orange-900">Ordina Forniture</h3>
+                     </div>
+                     <div onclick="window.app.setView('order-new', '${s.id}', 'LINEN')" class="cursor-pointer bg-sky-50 border border-sky-100 p-6 rounded-xl hover:shadow-md transition">
+                        <i data-lucide="shirt" class="text-sky-600 w-8 h-8 mb-2"></i>
+                        <h3 class="font-bold text-sky-900">Ordina Biancheria</h3>
+                     </div>
+                      <div onclick="window.app.setView('damage-new', '${s.id}')" class="cursor-pointer bg-red-50 border border-red-100 p-6 rounded-xl hover:shadow-md transition">
+                        <i data-lucide="alert-triangle" class="text-red-600 w-8 h-8 mb-2"></i>
+                        <h3 class="font-bold text-red-900">Segnala Guasto</h3>
+                     </div>
+                </div>
+
+                <!-- LISTA RECENTI (Semplificata) -->
+                <h3 class="font-bold text-lg mb-4">Storico Recente</h3>
+                <div class="space-y-4">
+                    ${invs.slice(0, 3).map(i => `
+                        <div class="bg-white p-4 rounded shadow-sm border flex justify-between">
+                            <div><span class="font-bold">Inventario ${i.type}</span> <span class="text-sm text-gray-500">${formatDate(i.date)}</span></div>
+                        </div>
+                    `).join('')}
+                    ${ords.slice(0, 3).map(o => `
+                        <div class="bg-white p-4 rounded shadow-sm border flex justify-between border-l-4 ${o.status === 'PENDING' ? 'border-l-yellow-400' : 'border-l-green-500'}">
+                            <div><span class="font-bold">Ordine ${o.type}</span> <span class="text-sm text-gray-500">${formatDate(o.date_created)}</span></div>
+                            <span class="text-xs px-2 py-1 bg-gray-100 rounded">${o.status}</span>
+                        </div>
+                    `).join('')}
+                    ${dmgs.slice(0, 3).map(d => `
+                         <div class="bg-white p-4 rounded shadow-sm border border-l-4 border-l-red-500">
+                            <div><span class="font-bold">Guasto</span> <span class="text-sm text-gray-500">${formatDate(d.date)}</span></div>
+                            <p class="text-sm text-gray-600">${d.notes}</p>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        }
+
+        function renderNewInventory() {
+            const type = state.activeType;
+            const prods = state.products.filter(p => p.type === type);
+            
+            return `
+            <div class="p-4 md:p-8 w-full max-w-2xl mx-auto">
+                 <button onclick="window.app.setView('structure', '${state.selectedStructureId}')" class="text-gray-500 mb-4">Annulla</button>
+                 <h2 class="text-2xl font-bold mb-6">Nuovo Inventario ${formatItemType(type)}</h2>
+
+                 <!-- AI Camera -->
+                 <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-100">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <div class="bg-blue-600 text-white p-2 rounded-full"><i data-lucide="camera"></i></div>
+                        <div>
+                            <span id="ai-btn-text" class="font-bold text-blue-900 block">Compilazione Automatica AI</span>
+                            <span class="text-xs text-blue-700">Carica foto dello scaffale</span>
+                        </div>
+                        <input type="file" accept="image/*" class="hidden" onchange="window.app.handleImageUpload(this)">
+                    </label>
+                 </div>
+
+                 <div class="space-y-3 mb-6 bg-white rounded-lg shadow-sm border p-4">
+                    ${prods.map(p => `
+                        <div class="flex justify-between items-center py-2 border-b last:border-0">
+                            <span>${p.name} <span class="text-xs text-gray-400">(${p.unit})</span></span>
+                            <input type="number" id="qty-${p.id}" placeholder="0" class="w-20 border rounded p-2 text-center">
+                        </div>
+                    `).join('')}
+                 </div>
+
+                 <input type="text" id="notes" placeholder="Note opzionali..." class="w-full border p-3 rounded mb-4">
+                 <input type="text" id="signature" placeholder="Tua Firma (Nome Cognome)" class="w-full border p-3 rounded mb-6 font-bold bg-gray-50">
+
+                 <button onclick="window.app.saveInventory()" class="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold">Salva Inventario</button>
+            </div>`;
+        }
+
+        function renderNewOrder() {
+            const type = state.activeType;
+            const prods = state.products.filter(p => p.type === type);
+             return `
+            <div class="p-4 md:p-8 w-full max-w-2xl mx-auto">
+                 <button onclick="window.app.setView('structure', '${state.selectedStructureId}')" class="text-gray-500 mb-4">Annulla</button>
+                 <h2 class="text-2xl font-bold mb-6">Nuovo Ordine ${formatItemType(type)}</h2>
+
+                 <div class="space-y-3 mb-6 bg-white rounded-lg shadow-sm border p-4 max-h-[60vh] overflow-y-auto">
+                    ${prods.map(p => `
+                        <div class="flex justify-between items-center py-2 border-b last:border-0">
+                            <span>${p.name}</span>
+                            <input type="number" id="qty-${p.id}" placeholder="0" class="w-20 border rounded p-2 text-center">
+                        </div>
+                    `).join('')}
+                 </div>
+
+                 <button onclick="window.app.saveOrder()" class="w-full bg-orange-600 text-white py-3 rounded-lg font-bold">Invia Ordine</button>
+            </div>`;
+        }
+
+        function renderNewDamage() {
+             return `
+            <div class="p-4 md:p-8 w-full max-w-xl mx-auto">
+                 <button onclick="window.app.setView('structure', '${state.selectedStructureId}')" class="text-gray-500 mb-4">Annulla</button>
+                 <h2 class="text-2xl font-bold mb-6 text-red-600">Segnala Guasto</h2>
+                 <textarea id="notes" class="w-full h-40 border p-4 rounded-lg mb-4" placeholder="Descrivi cosa è rotto..."></textarea>
+                 <button onclick="window.app.saveDamage()" class="w-full bg-red-600 text-white py-3 rounded-lg font-bold">Invia Segnalazione</button>
+            </div>`;
+        }
+
+        function renderOrdersList() {
+            const type = state.activeType;
+            // Filtra solo gli ordini del tipo corrente
+            const list = state.orders.filter(o => o.type === type).sort((a,b) => new Date(b.date_created) - new Date(a.date_created));
+            const isAdmin = state.currentUser.role === 'ADMIN' || state.currentUser.role === 'RECEPTION';
+
+            return `
+            <div class="p-4 md:p-8 w-full overflow-y-auto">
+                <h2 class="text-2xl font-bold mb-6">Ordini ${formatItemType(type)}</h2>
+                <div class="space-y-4">
+                    ${list.map(o => {
+                        const s = state.structures.find(x => x.id === o.structure_id);
+                        return `
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <div class="flex justify-between mb-2">
+                                <h3 class="font-bold text-lg">${s ? s.name : 'Struttura eliminata'}</h3>
+                                <span class="px-2 py-1 rounded text-xs font-bold ${o.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}">${o.status}</span>
+                            </div>
+                            <div class="text-sm text-gray-500 mb-4">
+                                Data: ${formatDate(o.date_created)}
+                            </div>
+                            <ul class="mb-4 text-sm bg-gray-50 p-3 rounded">
+                                ${o.items.map(item => {
+                                    const p = state.products.find(x => x.id === item.productId);
+                                    return `<li>${p ? p.name : 'Prodotto'} x ${item.quantity}</li>`
+                                }).join('')}
+                            </ul>
+                            ${o.status === 'PENDING' && isAdmin ? `
+                                <button onclick="window.app.updateOrderStatus('${o.id}', 'SENT')" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold">Segna come INVIATO</button>
+                            ` : ''}
+                             ${o.status === 'SENT' && isAdmin ? `
+                                <button onclick="window.app.updateOrderStatus('${o.id}', 'DELIVERED')" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">Segna come CONSEGNATO</button>
+                            ` : ''}
+                        </div>
+                        `
+                    }).join('')}
+                    ${list.length === 0 ? '<p class="text-gray-500">Nessun ordine presente.</p>' : ''}
+                </div>
+            </div>`;
+        }
+
+        function renderSupplier() {
+            // Solo ordini PRODUCT non in PENDING
+            const list = state.orders.filter(o => o.type === 'PRODUCT' && o.status !== 'PENDING');
+            return `
+            <div class="p-4 md:p-8 w-full overflow-y-auto">
+                <h2 class="text-2xl font-bold mb-6">Portale Fornitore</h2>
+                
+                <div class="bg-white rounded-xl shadow overflow-hidden mb-8">
+                     <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-50">
+                            <tr><th class="p-4">Data</th><th class="p-4">Struttura</th><th class="p-4">Stato</th></tr>
+                        </thead>
+                        <tbody>
+                            ${list.map(o => {
+                                const s = state.structures.find(x => x.id === o.structure_id);
+                                return `<tr class="border-b">
+                                    <td class="p-4">${formatDate(o.date_created)}</td>
+                                    <td class="p-4">${s ? s.name : '-'}</td>
+                                    <td class="p-4 font-bold">${o.status}</td>
+                                </tr>`
+                            }).join('')}
+                        </tbody>
+                     </table>
+                </div>
+
+                <h3 class="font-bold text-lg mb-4">Codici Accesso</h3>
+                <div class="grid gap-4">
+                    ${state.structures.map(s => `
+                        <div class="bg-white p-4 rounded border flex justify-between items-center">
+                            <span>${s.name}</span>
+                            <code class="bg-gray-100 p-2 rounded font-mono font-bold">${s.access_codes}</code>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        }
+
+        // --- RENDER MAIN (ROUTER) ---
+        function renderApp() {
+            if (!state.currentUser) {
+                renderLogin();
+                return;
+            }
+
+            let contentHtml = '';
+            
+            switch(state.view) {
+                case 'dashboard': contentHtml = renderDashboardContent(); break;
+                case 'structure': contentHtml = renderStructureDetail(); break;
+                case 'inventory-new': contentHtml = renderNewInventory(); break;
+                case 'order-new': contentHtml = renderNewOrder(); break;
+                case 'damage-new': contentHtml = renderNewDamage(); break;
+                case 'orders-list': contentHtml = renderOrdersList(); break;
+                case 'supplier': contentHtml = renderSupplier(); break;
+                default: contentHtml = renderDashboardContent();
+            }
+
+            $('#app').innerHTML = renderSidebar() + `<main class="flex-1 flex bg-gray-50 md:ml-0 overflow-hidden h-screen">${contentHtml}</main>`;
+            
+            // Re-inizializza le icone
+            lucide.createIcons();
+        }
+
+        // --- AVVIO ---
+        // Avvia caricando i dati se ci sono le chiavi, altrimenti login fittizio
+        if (SUPABASE_KEY) {
+            fetchData();
+        } else {
+            // Modalità demo se mancano chiavi (fallback)
+            state.users = [{email:'admin', password:'123', name:'Demo Admin', role:'ADMIN'}];
+            renderLogin();
+        }
+
+    </script>
+</body>
 </html>
