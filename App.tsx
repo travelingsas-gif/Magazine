@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, ShoppingCart, LogOut, Menu, X, 
@@ -25,7 +24,7 @@ const mapProduct = (p: any): Product => ({
 });
 const mapInventory = (i: any): InventoryReport => ({ 
   id: i.id, structureId: i.structure_id, operatorId: i.operator_id, date: i.date, 
-  items: i.items, signature_url: i.signature_url, photo_url: i.photo_url, notes: i.notes, type: i.type 
+  items: i.items, signatureUrl: i.signature_url, photoUrl: i.photo_url, notes: i.notes, type: i.type 
 });
 const mapOrder = (o: any): Order => ({ 
   id: o.id, structureId: o.structure_id, requesterId: o.requester_id, 
@@ -39,7 +38,7 @@ const mapDamageReport = (d: any): DamageReport => ({
 const mapUnusedLinen = (l: any): UnusedLinenReport => ({ 
   id: l.id, structureId: l.structure_id, operatorId: l.operator_id, date: l.date, 
   dirtyItems: l.dirty_items || [], unusedItems: l.unused_items || [], 
-  brokenItems: l.broken_items || [], notes: l.notes, signature_url: l.signature_url 
+  brokenItems: l.broken_items || [], notes: l.notes, signatureUrl: l.signature_url 
 });
 
 const App: React.FC = () => {
@@ -181,7 +180,7 @@ const App: React.FC = () => {
                     openConfirm("Salva Inventario", "Confermi il salvataggio dei dati dell'inventario?", async () => {
                       const { data, error } = await supabase.from('inventories').insert({
                         id: crypto.randomUUID(), structure_id: inv.structureId, operator_id: inv.operatorId,
-                        date: inv.date, items: inv.items, signature_url: inv.signature_url, photo_url: inv.photo_url,
+                        date: inv.date, items: inv.items, signature_url: inv.signatureUrl, photo_url: inv.photoUrl,
                         notes: inv.notes, type: inv.type
                       }).select().single();
                       if(!error && data) { 
@@ -200,7 +199,7 @@ const App: React.FC = () => {
                   onSave={async (ord) => {
                     openConfirm("Invia Ordine", "Vuoi inoltrare questa richiesta d'ordine alla reception?", async () => {
                       const { data, error } = await supabase.from('orders').insert({
-                        id: crypto.randomUUID(), structure_id: ord.structureId, requester_id: ord.requester_id,
+                        id: crypto.randomUUID(), structure_id: ord.structureId, requester_id: ord.requesterId,
                         date_created: ord.dateCreated, items: ord.items, status: ord.status, type: ord.type, signature_url: ord.signatureUrl
                       }).select().single();
                       if (!error && data) { 
@@ -219,7 +218,7 @@ const App: React.FC = () => {
                 onSave={async (rep) => {
                   openConfirm("Segnala Guasto", "Vuoi inoltrare la segnalazione di guasto?", async () => {
                     const { data, error } = await supabase.from('damage_reports').insert({
-                       id: crypto.randomUUID(), structure_id: rep.structureId, reporter_id: rep.reporter_id,
+                       id: crypto.randomUUID(), structure_id: rep.structureId, reporter_id: rep.reporterId,
                        date: rep.date, items: rep.items, notes: rep.notes, status: rep.status
                     }).select().single();
                     if(!error && data) { 
@@ -239,8 +238,8 @@ const App: React.FC = () => {
                   openConfirm("Invia Report Biancheria", "Confermi l'invio del report biancheria?", async () => {
                     const { data, error } = await supabase.from('unused_linen_reports').insert({
                       id: crypto.randomUUID(), structure_id: rep.structureId, operator_id: rep.operatorId,
-                      date: rep.date, dirty_items: rep.dirty_items, unused_items: rep.unused_items, broken_items: rep.broken_items,
-                      notes: rep.notes, signature_url: rep.signature_url
+                      date: rep.date, dirty_items: rep.dirtyItems, unused_items: rep.unusedItems, broken_items: rep.brokenItems,
+                      notes: rep.notes, signature_url: rep.signatureUrl
                     }).select().single();
                     if (!error && data) { 
                       setCurrentView('structure-detail'); 
@@ -363,7 +362,8 @@ const App: React.FC = () => {
   );
 };
 
-// --- NavItem ---
+// --- SubComponents ---
+
 const NavItem: React.FC<{ icon: any, label: string, active?: boolean, onClick: () => void, badge?: number }> = ({ icon, label, active, onClick, badge }) => (
   <button onClick={onClick} className={`w-full flex items-center justify-between p-2 rounded-lg transition-all duration-200 group ${active ? 'bg-emerald-600 text-white shadow' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-100'}`}>
     <div className="flex items-center gap-2">
@@ -374,7 +374,6 @@ const NavItem: React.FC<{ icon: any, label: string, active?: boolean, onClick: (
   </button>
 );
 
-// --- LoginView ---
 const LoginView: React.FC<{ onLogin: (e: string, p: string) => void }> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -400,7 +399,6 @@ const LoginView: React.FC<{ onLogin: (e: string, p: string) => void }> = ({ onLo
   );
 };
 
-// --- ProductManagementView ---
 const ProductManagementView: React.FC<{ products: Product[], onSave: (p: any) => Promise<void>, onDelete: (id: string) => Promise<void>, onBack: () => void }> = ({ products, onSave, onDelete, onBack }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState<Product['category']>('OTHER');
@@ -454,7 +452,6 @@ const ProductManagementView: React.FC<{ products: Product[], onSave: (p: any) =>
   );
 };
 
-// --- DashboardView ---
 const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id: string) => void, role: Role, pendingOrdersCount: number, onNavigateToOrders: () => void, onAddStructure: () => void }> = ({ structures, onSelectStructure, pendingOrdersCount, onNavigateToOrders, onAddStructure, role }) => (
   <div className="animate-fade-in max-w-6xl mx-auto">
     <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-6">
@@ -463,7 +460,7 @@ const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id:
     </div>
     {pendingOrdersCount > 0 && (
       <div onClick={onNavigateToOrders} className="mb-6 bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between cursor-pointer hover:bg-emerald-600 shadow-xl group border border-white/5 transition-all">
-        <div className="flex items-center gap-3"><div className="bg-emerald-500 p-2 rounded-lg"><Bell size={18} /></div><div><p className="text-sm font-black uppercase tracking-tight">{pendingOrdersCount} nuovi ordini in coda</p><p className="text-emerald-400 font-bold uppercase text-[7px] tracking-widest">Azione richiesta</p></div></div>
+        <div className="flex items-center gap-3"><div className="bg-emerald-500 p-2 rounded-lg"><Bell size={18} /></div><div><p className="text-sm font-black uppercase tracking-tight">Hai {pendingOrdersCount} nuovi ordini in coda</p><p className="text-emerald-400 font-bold uppercase text-[7px] tracking-widest">Azione richiesta</p></div></div>
         <div className="bg-white/10 px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest group-hover:bg-white group-hover:text-emerald-600 transition-all">GESTISCI</div>
       </div>
     )}
@@ -471,7 +468,7 @@ const DashboardView: React.FC<{ structures: Structure[], onSelectStructure: (id:
       {structures.map(s => (
         <div key={s.id} onClick={() => onSelectStructure(s.id)} className="bg-white rounded-xl shadow-sm hover:shadow-lg cursor-pointer border border-slate-200 overflow-hidden group transition-all hover:-translate-y-0.5">
           <div className="relative h-32 overflow-hidden border-b border-slate-100">
-            <img src={s.imageUrl || `https://picsum.photos/seed/${s.id}/800/400`} className="h-full w-full object-cover group-hover:scale-105 transition-all duration-700 opacity-80" />
+            <img src={s.imageUrl || `https://picsum.photos/seed/${s.id}/800/400`} className="h-full w-full object-cover group-hover:scale-105 transition-all duration-700 opacity-80" alt={s.name} />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent"></div>
             <div className="absolute bottom-2.5 left-3 text-white">
               <h3 className="font-black text-sm uppercase tracking-tighter leading-none">{s.name}</h3>
@@ -489,7 +486,6 @@ const ArrowRight = ({ size }: { size: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
 );
 
-// --- StructureDetailView ---
 const StructureDetailView: React.FC<{
   structureId: string; currentUser: User; damageReports: DamageReport[]; structures: Structure[]; users: User[];
   onBack: () => void; onNewInventory: (t: ItemType) => void; onRequestOrder: (t: ItemType) => void;
@@ -538,14 +534,12 @@ const StructureDetailView: React.FC<{
                   <p className="text-[8px] text-slate-400 font-bold uppercase flex items-center gap-1.5">Da: <span className="text-slate-900 font-black">{users.find(u => u.id === d.reporterId)?.name}</span></p>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  {/* Fixed error: Wrapped onUpdateDamageStatus call in a button instead of executing it directly during render */}
                   {d.status === 'OPEN' && (
                     <button 
                       onClick={() => onUpdateDamageStatus(d.id, 'RESOLVED')} 
                       className="p-1.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded hover:bg-emerald-600 hover:text-white transition-colors"
-                      title="Segna come risolto"
                     >
-                      <CheckCircle2 size={12}/>
+                      <Check size={12}/>
                     </button>
                   )}
                   <button onClick={() => onUpdateDamageStatus(d.id, 'ARCHIVED')} className="p-1.5 bg-slate-50 text-slate-400 border border-slate-200 rounded hover:text-red-500"><Trash size={12}/></button>
@@ -566,7 +560,6 @@ const ActionCard: React.FC<{ icon: any, title: string, desc: string, onClick: ()
   </div>
 );
 
-// --- NewOrderView ---
 const NewOrderView: React.FC<{ structureId: string, currentUser: User, products: Product[], type: ItemType, onSave: (o: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, type, onSave, onCancel }) => {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const filtered = products.filter(p => p.type === type);
@@ -588,13 +581,12 @@ const NewOrderView: React.FC<{ structureId: string, currentUser: User, products:
           </div>
         ))}
       </div>
-      <div className="mb-6 bg-slate-900 p-4 rounded-lg"><label className="block text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1.5">Firma Operatore</label><input className="w-full bg-white/5 border border-white/10 p-2 rounded focus:border-emerald-500 outline-none font-black text-white text-base tracking-tight" value={signer} onChange={e => setSigner(e.target.value)} /></div>
+      <div className="mb-6 bg-slate-900 p-4 rounded-lg"><label className="block text-[7px] font-black text-emerald-400 uppercase tracking-widest mb-1.5">Convalida Operatore</label><input className="w-full bg-white/5 border border-white/10 p-2 rounded focus:border-emerald-500 outline-none font-black text-white text-base tracking-tight" value={signer} onChange={e => setSigner(e.target.value)} /></div>
       <div className="flex gap-2"><button onClick={() => { const items = Object.entries(quantities).filter(([_,q])=>q>0).map(([pid, q]) => ({ productId: pid, quantity: q })); onSave({ structureId, requesterId: currentUser.id, dateCreated: new Date().toISOString(), items, status: OrderStatus.PENDING, type, signatureUrl: signer }); }} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-black text-[9px] uppercase tracking-widest shadow active:scale-95">CONFERMA E INVIA</button><button onClick={onCancel} className="px-6 bg-slate-100 text-slate-500 rounded-lg font-black text-[9px] uppercase tracking-widest border border-slate-200 active:scale-95">CHIUDI</button></div>
     </div>
   );
 };
 
-// --- NewInventoryView ---
 const NewInventoryView: React.FC<{ structureId: string, currentUser: User, products: Product[], type: ItemType, onSave: (i: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, type, onSave, onCancel }) => {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [signer, setSigner] = useState(currentUser.name);
@@ -617,7 +609,6 @@ const NewInventoryView: React.FC<{ structureId: string, currentUser: User, produ
   );
 };
 
-// --- NewDamageReportView ---
 const NewDamageReportView: React.FC<{ structureId: string, currentUser: User, onSave: (r: any) => void, onCancel: () => void }> = ({ structureId, currentUser, onSave, onCancel }) => {
   const [notes, setNotes] = useState('');
   return (
@@ -629,7 +620,6 @@ const NewDamageReportView: React.FC<{ structureId: string, currentUser: User, on
   );
 };
 
-// --- ManageOrdersView ---
 const ManageOrdersView: React.FC<{ 
   orders: Order[], structures: Structure[], products: Product[], users: User[], currentUser: User, targetType: ItemType, 
   onUpdateOrder: (o: Order, s: OrderStatus) => void, onDeleteOrder: (id: string) => void 
@@ -650,7 +640,7 @@ const ManageOrdersView: React.FC<{
                   <><button onClick={() => onUpdateOrder(o, OrderStatus.SENT)} className="bg-emerald-600 text-white px-3 py-2 rounded font-black text-[8px] uppercase tracking-widest active:scale-95 transition-all">CONVALIDA</button>
                   <button onClick={() => onDeleteOrder(o.id)} className="p-2 bg-red-50 text-red-600 rounded active:scale-95 transition-all"><Trash size={13} /></button></>
                 )}
-                {o.status === OrderStatus.SENT && <span className="bg-emerald-50 text-emerald-600 px-3 py-2 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1.5"><CheckCircle2 size={12}/> INVIATO</span>}
+                {o.status === OrderStatus.SENT && <span className="bg-emerald-50 text-emerald-600 px-3 py-2 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1.5"><Check size={12}/> INVIATO</span>}
               </div>
             </div>
           </div>
@@ -661,7 +651,6 @@ const ManageOrdersView: React.FC<{
   );
 };
 
-// --- NewUnusedLinenView ---
 const NewUnusedLinenView: React.FC<{ structureId: string, currentUser: User, products: Product[], onSave: (r: any) => void, onCancel: () => void }> = ({ structureId, currentUser, products, onSave, onCancel }) => {
   const linen = products.filter(p => p.type === 'LINEN');
   const [dirty, setDirty] = useState<Record<string, number>>({});
@@ -690,7 +679,6 @@ const NewUnusedLinenView: React.FC<{ structureId: string, currentUser: User, pro
   );
 };
 
-// --- AdminLinenSummaryView ---
 const AdminLinenSummaryView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
   <div className="max-w-4xl mx-auto animate-fade-in text-center">
     <button onClick={onBack} className="text-slate-400 font-black mb-5 uppercase text-[8px] tracking-widest flex items-center gap-1 border border-slate-200 p-1 bg-white rounded shadow-sm hover:text-emerald-600"><X size={12}/> CHIUDI LOG</button>
@@ -699,7 +687,6 @@ const AdminLinenSummaryView: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   </div>
 );
 
-// --- SupplierDashboardView ---
 const SupplierDashboardView: React.FC<{ orders: Order[], structures: Structure[], products: Product[], currentUser: User, onOrderDelivered: () => void }> = ({ orders, structures, products, currentUser, onOrderDelivered }) => {
   const supplierOrders = orders.filter(o => o.status === OrderStatus.SENT && o.type === 'PRODUCT').sort((a,b) => new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime());
   return (
@@ -732,7 +719,6 @@ const SupplierDashboardView: React.FC<{ orders: Order[], structures: Structure[]
   );
 };
 
-// --- AddStructureView ---
 const AddStructureView: React.FC<{ onSave: (s: any) => void, onCancel: () => void }> = ({ onSave, onCancel }) => {
   const [form, setForm] = useState({ name: '', address: '', accessCodes: '' });
   return (
