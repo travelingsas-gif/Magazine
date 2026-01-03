@@ -1,12 +1,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Product } from "../types";
 
-// The API key must be obtained exclusively from the environment variable process.env.API_KEY.
+// Follows @google/genai guidelines:
+// 1. Use process.env.API_KEY directly.
+// 2. Do not use import.meta.env (fixes TS error).
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeInventoryImage = async (base64Image: string, availableProducts: Product[]) => {
   try {
-    // We strip the data url prefix if present
+    // Rimuove il prefisso data url se presente
     const cleanBase64 = base64Image.split(',')[1] || base64Image;
 
     const productNames = availableProducts.map(p => p.name).join(', ');
@@ -22,8 +24,9 @@ export const analyzeInventoryImage = async (base64Image: string, availableProduc
       Se non trovi nulla, restituisci un array vuoto.
     `;
 
+    // Use gemini-3-flash-preview for multimodal tasks (image + text) as per guidelines examples.
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-flash-preview', 
       contents: {
         parts: [
           {
@@ -52,6 +55,7 @@ export const analyzeInventoryImage = async (base64Image: string, availableProduc
       }
     });
 
+    // Access .text directly as per guidelines
     const text = response.text;
     if (!text) return [];
     
