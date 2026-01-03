@@ -20,7 +20,7 @@ export interface Product {
   name: string;
   category: 'CLEANING' | 'FOOD' | 'AMENITIES' | 'LINEN_BED' | 'LINEN_BATH' | 'OTHER';
   unit: string;
-  type: ItemType;
+  type: ItemType; // Discriminate between consumable products and linen
 }
 
 export interface Structure {
@@ -42,10 +42,10 @@ export interface InventoryReport {
   operatorId: string;
   date: string;
   items: InventoryItem[];
-  signatureUrl: string;
+  signatureUrl: string; // Now holds the text name
   photoUrl?: string;
   notes?: string;
-  type: ItemType;
+  type: ItemType; // Inventory is specific to a type
 }
 
 export interface DamageReport {
@@ -53,27 +53,9 @@ export interface DamageReport {
   structureId: string;
   reporterId: string;
   date: string;
-  items: InventoryItem[];
+  items: InventoryItem[]; // Items damaged/dirty
   notes?: string;
-  status: 'OPEN' | 'RESOLVED' | 'ARCHIVED';
-}
-
-export interface UnusedLinenReport {
-  id: string;
-  structureId: string;
-  operatorId: string;
-  date: string;
-  dirtyItems: InventoryItem[];
-  unusedItems: InventoryItem[];
-  brokenItems: InventoryItem[];
-  notes?: string;
-  signatureUrl?: string;
-}
-
-export enum OrderStatus {
-  PENDING = 'PENDING',
-  SENT = 'SENT',
-  DELIVERED = 'DELIVERED'
+  status: 'OPEN' | 'RESOLVED';
 }
 
 export interface Order {
@@ -83,9 +65,41 @@ export interface Order {
   approverId?: string;
   dateCreated: string;
   dateSent?: string;
-  sentToEmail?: string;
+  sentToEmail?: string; // Track who it was emailed to
   items: InventoryItem[];
   status: OrderStatus;
-  type: ItemType;
-  signatureUrl?: string;
+  type: ItemType; // Order is specific to a type
+}
+
+export enum OrderStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED'
+}
+
+// --- NEW TYPES FOR LINEN ISSUES ---
+export interface LinenIssueItem {
+  productId: string;
+  dirty: number;   // Sporca
+  broken: number;  // Rotta
+  unused: number;  // Inutilizzata
+}
+
+export interface LinenIssueReport {
+  id: string;
+  structureId: string;
+  reporterId: string;
+  date: string;
+  items: LinenIssueItem[];
+  notes?: string;
+}
+
+export interface MockDatabase {
+  users: User[];
+  products: Product[];
+  structures: Structure[];
+  inventories: InventoryReport[];
+  orders: Order[];
+  damageReports: DamageReport[];
+  currentUser: User | null;
 }

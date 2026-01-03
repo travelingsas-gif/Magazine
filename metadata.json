@@ -1,6 +1,6 @@
 {
-  "name": "Copy of Gestione Ordini & Magazzino Turistico",
-  "description": "Application for managing inventory, orders, and structures for the tourism sector. Features roles for Admin, Reception, and Operators with signature and photo verification.",
+  "name": "Gestione Magazzino & Ordini",
+  "description": "Application for managing inventory, orders, and structures. Features roles for Admin, Reception, and Operators with signature and photo verification.",
   "requestFramePermissions": [
     "camera",
     "microphone"
