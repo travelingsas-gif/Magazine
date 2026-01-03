@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, Box, Users, ShoppingCart, LogOut, Menu, X, 
@@ -8,7 +9,6 @@ import {
   Role, User, Product, Structure, InventoryReport, Order, 
   OrderStatus, InventoryItem, ItemType, DamageReport 
 } from './types';
-import { analyzeInventoryImage } from './services/geminiService';
 import { supabase } from './supabaseClient';
 
 // --- Helpers to map snake_case (DB) to camelCase (App) ---
@@ -18,7 +18,7 @@ const mapUser = (u: any): User => ({
 });
 
 const mapStructure = (s: any): Structure => ({
-  id: s.id, name: s.name, address: s.address, accessCodes: s.access_codes, imageUrl: s.image_url
+  id: s.id, name: s.name, address: s.address, access_codes: s.access_codes, imageUrl: s.image_url
 });
 
 const mapProduct = (p: any): Product => ({
@@ -26,15 +26,15 @@ const mapProduct = (p: any): Product => ({
 });
 
 const mapInventory = (i: any): InventoryReport => ({
-  id: i.id, structureId: i.structure_id, operatorId: i.operator_id, date: i.date, items: i.items, signatureUrl: i.signature_url, photoUrl: i.photo_url, notes: i.notes, type: i.type
+  id: i.id, structureId: i.structure_id, operator_id: i.operator_id, date: i.date, items: i.items, signature_url: i.signature_url, photo_url: i.photo_url, notes: i.notes, type: i.type
 });
 
 const mapOrder = (o: any): Order => ({
-  id: o.id, structureId: o.structure_id, requesterId: o.requester_id, dateCreated: o.date_created, dateSent: o.date_sent, sentToEmail: o.sent_to_email, items: o.items, status: o.status, type: o.type
+  id: o.id, structureId: o.structure_id, requester_id: o.requester_id, date_created: o.date_created, date_sent: o.date_sent, sent_to_email: o.sent_to_email, items: o.items, status: o.status, type: o.type
 });
 
 const mapDamageReport = (d: any): DamageReport => ({
-  id: d.id, structureId: d.structure_id, reporterId: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status
+  id: d.id, structureId: d.structure_id, reporter_id: d.reporter_id, date: d.date, items: d.items, notes: d.notes, status: d.status
 });
 
 // --- Main App ---
@@ -259,7 +259,7 @@ const App: React.FC = () => {
                 type={activeItemType}
                 onSave={async (ord) => {
                   const { data, error } = await supabase.from('orders').insert({
-                     id: ord.id, structure_id: ord.structureId, requester_id: ord.requesterId,
+                     id: ord.id, structure_id: ord.structureId, requester_id: ord.requester_id,
                      date_created: ord.dateCreated, status: ord.status, items: ord.items, type: ord.type
                   }).select().single();
                   if(!error && data) {
@@ -822,33 +822,9 @@ const NewInventoryView: React.FC<{
   const [notes, setNotes] = useState('');
   // Now signature is just a text string for the name
   const [signature, setSignature] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleQuantityChange = (pid: string, val: number) => {
     setQuantities(prev => ({ ...prev, [pid]: val }));
-  };
-
-  const handleImageAnalysis = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setIsAnalyzing(true);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-         const base64 = reader.result as string;
-         const results = await analyzeInventoryImage(base64, filteredProducts);
-         // Merge results
-         const newQuantities = { ...quantities };
-         results.forEach((item: any) => {
-            const prod = filteredProducts.find(p => p.name.toLowerCase() === item.productName?.toLowerCase());
-            if (prod) {
-               newQuantities[prod.id] = item.estimatedQuantity;
-            }
-         });
-         setQuantities(newQuantities);
-         setIsAnalyzing(false);
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
   const handleSubmit = () => {
@@ -883,20 +859,6 @@ const NewInventoryView: React.FC<{
          {type === 'PRODUCT' ? <Box className="text-emerald-600" /> : <Shirt className="text-indigo-600" />}
          Nuovo Inventario {type === 'PRODUCT' ? 'Prodotti' : 'Biancheria'}
        </h2>
-
-       {/* AI Helper */}
-       <div className="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-100">
-          <label className="flex items-center gap-3 cursor-pointer">
-             <div className="bg-blue-600 text-white p-2 rounded-full">
-                {isAnalyzing ? <Loader className="animate-spin" size={20}/> : <Camera size={20}/>}
-             </div>
-             <div>
-                <span className="font-bold text-blue-900 block">Compilazione Automatica AI</span>
-                <span className="text-xs text-blue-700">Carica una foto dello scaffale per contare automaticamente.</span>
-             </div>
-             <input type="file" accept="image/*" className="hidden" onChange={handleImageAnalysis} disabled={isAnalyzing} />
-          </label>
-       </div>
 
        <div className="space-y-4 mb-6 max-h-[400px] overflow-y-auto pr-2">
          {filteredProducts.map(p => (
