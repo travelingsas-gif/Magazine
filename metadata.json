@@ -1,5 +1,5 @@
 {
-  "name": "Gestione Magazzino & Ordini",
+  "name": "Gestione Magazzino & Ordini definitivo",
   "description": "Application for managing inventory, orders, and structures. Features roles for Admin, Reception, and Operators with signature and photo verification.",
   "requestFramePermissions": [
     "camera",
