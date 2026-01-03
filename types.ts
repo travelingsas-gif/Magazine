@@ -20,7 +20,7 @@ export interface Product {
   name: string;
   category: 'CLEANING' | 'FOOD' | 'AMENITIES' | 'LINEN_BED' | 'LINEN_BATH' | 'OTHER';
   unit: string;
-  type: ItemType;
+  type: ItemType; // Discriminate between consumable products and linen
 }
 
 export interface Structure {
@@ -42,10 +42,10 @@ export interface InventoryReport {
   operatorId: string;
   date: string;
   items: InventoryItem[];
-  signatureUrl: string;
+  signatureUrl: string; // Now holds the text name
   photoUrl?: string;
   notes?: string;
-  type: ItemType;
+  type: ItemType; // Inventory is specific to a type
 }
 
 export interface DamageReport {
@@ -53,19 +53,9 @@ export interface DamageReport {
   structureId: string;
   reporterId: string;
   date: string;
-  items: InventoryItem[];
+  items: InventoryItem[]; // Items damaged/dirty
   notes?: string;
-  status: 'OPEN' | 'RESOLVED' | 'ARCHIVED';
-}
-
-export interface UnusedLinenReport {
-  id: string;
-  structureId: string;
-  operatorId: string;
-  date: string;
-  dirtyItems: InventoryItem[];
-  unusedItems: InventoryItem[];
-  notes?: string;
+  status: 'OPEN' | 'RESOLVED';
 }
 
 export enum OrderStatus {
@@ -81,8 +71,18 @@ export interface Order {
   approverId?: string;
   dateCreated: string;
   dateSent?: string;
-  sentToEmail?: string;
+  sentToEmail?: string; // Track who it was emailed to
   items: InventoryItem[];
   status: OrderStatus;
-  type: ItemType;
+  type: ItemType; // Order is specific to a type
+}
+
+export interface MockDatabase {
+  users: User[];
+  products: Product[];
+  structures: Structure[];
+  inventories: InventoryReport[];
+  orders: Order[];
+  damageReports: DamageReport[];
+  currentUser: User | null;
 }
